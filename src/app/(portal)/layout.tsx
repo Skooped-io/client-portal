@@ -16,6 +16,17 @@ export default async function PortalLayout({ children }: PortalLayoutProps) {
     redirect("/login")
   }
 
+  // Check if onboarding is incomplete — redirect to wizard
+  const { data: onboarding } = await supabase
+    .from("onboarding_progress")
+    .select("is_complete, current_step")
+    .eq("user_id", user.id)
+    .single()
+
+  if (onboarding && !onboarding.is_complete) {
+    redirect(`/onboarding/step/${onboarding.current_step}`)
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("full_name")
