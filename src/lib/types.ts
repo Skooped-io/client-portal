@@ -79,3 +79,45 @@ export interface DashboardStats {
 export type ActionResult<T = void> =
   | { success: true; data?: T }
   | { success: false; error: string }
+
+export interface OnboardingProgress {
+  id: string
+  user_id: string
+  org_id: string
+  current_step: number
+  completed_steps: number[]
+  is_complete: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type OauthProvider = 'google' | 'meta'
+export type OauthStatus = 'active' | 'expired' | 'revoked' | 'error'
+export type ConnectedService =
+  | 'search_console'
+  | 'business_profile'
+  | 'analytics'
+  | 'ads'
+  | 'instagram'
+  | 'facebook'
+
+export interface OauthConnection {
+  id: string
+  org_id: string
+  provider: OauthProvider
+  provider_account_id: string | null
+  provider_email: string | null
+  access_token: string
+  refresh_token: string | null
+  token_type: string
+  scope: string | null
+  expires_at: string | null
+  last_refreshed_at: string | null
+  refresh_error: string | null
+  refresh_error_count: number
+  status: OauthStatus
+  connected_services: ConnectedService[]
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}

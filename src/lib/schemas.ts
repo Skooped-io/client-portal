@@ -37,3 +37,64 @@ export const businessProfileSchema = z.object({
 export type SignupFormData = z.infer<typeof signupSchema>
 export type LoginFormData = z.infer<typeof loginSchema>
 export type BusinessProfileFormData = z.infer<typeof businessProfileSchema>
+
+// ─────────────────────────────────────────────
+// Onboarding step schemas
+// ─────────────────────────────────────────────
+
+export const INDUSTRIES = [
+  'Home Services',
+  'Retail',
+  'Restaurant / Food & Beverage',
+  'Healthcare',
+  'Legal',
+  'Real Estate',
+  'Automotive',
+  'Fitness & Wellness',
+  'Beauty & Personal Care',
+  'Education',
+  'Financial Services',
+  'Construction',
+  'Technology',
+  'Other',
+] as const
+
+export type Industry = (typeof INDUSTRIES)[number]
+
+export const onboardingStep1Schema = z.object({
+  business_name: z.string().min(1, 'Business name is required'),
+  industry: z.string().optional(),
+  phone: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || /^[\d\s\-\+\(\)\.]{7,20}$/.test(val),
+      'Invalid phone number'
+    ),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  website_url: z
+    .string()
+    .url('Must be a valid URL (include https://)')
+    .optional()
+    .or(z.literal('')),
+})
+
+export const onboardingStep2Schema = z.object({
+  street_address: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().max(2, 'Use 2-letter state code').optional(),
+  zip: z.string().max(10).optional(),
+  service_areas: z.array(z.string()).default([]),
+})
+
+export const onboardingStep3Schema = z.object({
+  services: z.array(z.string()).default([]),
+  description: z
+    .string()
+    .max(500, 'Description must be 500 characters or fewer')
+    .optional(),
+})
+
+export type OnboardingStep1Data = z.infer<typeof onboardingStep1Schema>
+export type OnboardingStep2Data = z.infer<typeof onboardingStep2Schema>
+export type OnboardingStep3Data = z.infer<typeof onboardingStep3Schema>
