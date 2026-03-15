@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import {
   onboardingStep1Schema,
@@ -98,14 +99,17 @@ export async function saveStep1Action(data: OnboardingStep1Data): Promise<Action
     const orgId = await getCurrentOrgId(supabase)
     if (!orgId) return { success: false, error: 'No organization found' }
 
-    const { data: existing } = await supabase
+    // Use admin client to bypass RLS for onboarding writes
+    const admin = createAdminClient()
+
+    const { data: existing } = await admin
       .from('business_profiles')
       .select('org_id')
       .eq('org_id', orgId)
       .single()
 
     if (existing) {
-      const { error } = await supabase
+      const { error } = await admin
         .from('business_profiles')
         .update({
           business_name: parsed.data.business_name,
@@ -121,7 +125,7 @@ export async function saveStep1Action(data: OnboardingStep1Data): Promise<Action
         return { success: false, error: 'Failed to save business info' }
       }
     } else {
-      const { error } = await supabase.from('business_profiles').insert({
+      const { error } = await admin.from('business_profiles').insert({
         org_id: orgId,
         business_name: parsed.data.business_name,
         industry: parsed.data.industry ?? null,
@@ -162,7 +166,8 @@ export async function saveStep2Action(data: OnboardingStep2Data): Promise<Action
     const orgId = await getCurrentOrgId(supabase)
     if (!orgId) return { success: false, error: 'No organization found' }
 
-    const { error } = await supabase
+    const admin = createAdminClient()
+    const { error } = await admin
       .from('business_profiles')
       .update({
         city: parsed.data.city ?? null,
@@ -202,7 +207,8 @@ export async function saveStep3Action(data: OnboardingStep3Data): Promise<Action
     const orgId = await getCurrentOrgId(supabase)
     if (!orgId) return { success: false, error: 'No organization found' }
 
-    const { error } = await supabase
+    const admin = createAdminClient()
+    const { error } = await admin
       .from('business_profiles')
       .update({
         services: parsed.data.services,
