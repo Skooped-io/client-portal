@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 30 50% 96%;
+    --foreground: 350 40% 15%;
+    --card: 35 60% 92%;
+    --card-foreground: 350 40% 15%;
+    --popover: 35 60% 92%;
+    --popover-foreground: 350 40% 15%;
+    --primary: 340 75% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 42 80% 75%;
+    --secondary-foreground: 350 40% 15%;
+    --muted: 35 30% 85%;
+    --muted-foreground: 20 20% 40%;
+    --accent: 35 70% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 340 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 30% 85%;
+    --input: 35 30% 85%;
+    --ring: 340 75% 55%;
+    --radius: 0.75rem;
+    --chart-1: 340 75% 55%;
+    --chart-2: 42 80% 75%;
+    --chart-3: 35 70% 55%;
+    --chart-4: 20 55% 28%;
+    --chart-5: 350 70% 25%;
+    --sidebar-background: 30 50% 96%;
+    --sidebar-foreground: 350 40% 15%;
+    --sidebar-primary: 340 75% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 340 75% 55%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 35 30% 85%;
+    --sidebar-ring: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-dm-sans), system-ui, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-nunito), system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-strawberry { color: #D94A7A; }
+  .text-vanilla { color: #E8C87A; }
+  .text-gold { color: #C99035; }
+  .text-chocolate { color: #6E3D20; }
+  .text-maroon { color: #6D1326; }
+  .bg-strawberry { background-color: #D94A7A; }
+  .bg-vanilla { background-color: #E8C87A; }
+  .bg-gold { background-color: #C99035; }
+  .bg-chocolate { background-color: #6E3D20; }
+  .bg-maroon { background-color: #6D1326; }
+  .border-strawberry { border-color: #D94A7A; }
+  .border-vanilla { border-color: #E8C87A; }
+  .border-gold { border-color: #C99035; }
+}
