@@ -1,5 +1,14 @@
 import { Axiom } from '@axiomhq/js'
-import type { AgentName, ErrorCategory, LogLevel, LogStatus, SkoopedLogEntry } from './types'
+import type {
+  AgentName,
+  ErrorCategory,
+  LogLevel,
+  LogStatus,
+  ProjectRepo,
+  SkoopedLogEntry,
+  WorkContext,
+  Workflow,
+} from './types'
 
 const axiom = new Axiom({
   token: process.env.AXIOM_TOKEN ?? '',
@@ -23,8 +32,18 @@ const createEntry = (
   ...options,
 })
 
+/** Generate a GitHub issue URL from repo + issue number */
+const issueUrl = (repo: ProjectRepo, issueNumber: number): string =>
+  `https://github.com/Skooped-io/${repo}/issues/${issueNumber}`
+
 export const logger = {
-  info: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
+  /** Standard info log */
+  info: (
+    agent: AgentName,
+    action: string,
+    status: LogStatus,
+    options?: Partial<SkoopedLogEntry>,
+  ) => {
     const entry = createEntry('info', agent, action, status, options)
     axiom.ingest(DATASET, [entry])
     if (process.env.NODE_ENV === 'development') {
@@ -33,13 +52,20 @@ export const logger = {
     return entry
   },
 
-  warn: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
+  /** Warning — something is off but not broken */
+  warn: (
+    agent: AgentName,
+    action: string,
+    status: LogStatus,
+    options?: Partial<SkoopedLogEntry>,
+  ) => {
     const entry = createEntry('warn', agent, action, status, options)
     axiom.ingest(DATASET, [entry])
     console.warn(`[${entry.agent}] ⚠️ ${entry.action} — ${entry.status}`, options?.metadata ?? '')
     return entry
   },
 
+  /** Error — something broke */
   error: (
     agent: AgentName,
     action: string,
@@ -57,6 +83,7 @@ export const logger = {
     return entry
   },
 
+  /** Critical — everything is on fire */
   critical: (
     agent: AgentName,
     action: string,
@@ -74,7 +101,13 @@ export const logger = {
     return entry
   },
 
-  debug: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
+  /** Debug — dev only */
+  debug: (
+    agent: AgentName,
+    action: string,
+    status: LogStatus,
+    options?: Partial<SkoopedLogEntry>,
+  ) => {
     if (process.env.NODE_ENV !== 'development') return
     const entry = createEntry('debug', agent, action, status, options)
     axiom.ingest(DATASET, [entry])
@@ -82,7 +115,7 @@ export const logger = {
     return entry
   },
 
-  /** Track an LLM / AI call with token usage and cost */
+  /** Track an LLM / AI call with token usage */
   llm: (
     agent: AgentName,
     action: string,
@@ -101,10 +134,61 @@ export const logger = {
     return entry
   },
 
-  /** Flush all pending logs — call this before process exit or in API route cleanup */
+  /**
+   * Log with full project context — use this for client/project work
+   *
+   * @example
+   * const ctx: WorkContext = {
+   *   client_id: 'uuid',
+   *   client_name: 'gunnsfencing',
+   *   project_repo: 'seo-engine',
+   *   issue_number: 42,
+   *   workflow: 'monthly_cycle',
+   *   trace_id: 'trace-abc123',
+   * }
+   * logger.task('scout', 'seo.audit.keywords', 'completed', ctx, { duration_ms: 4500 })
+   */
+  task: (
+    agent: AgentName,
+    action: string,
+    status: LogStatus,
+    context: WorkContext,
+    options?: Partial<SkoopedLogEntry>,
+  ) => {
+    const entry = createEntry('info', agent, action, status, {
+      client_id: context.client_id,
+      client_name: context.client_name,
+      project_repo: context.project_repo,
+      issue_number: context.issue_number,
+      issue_url: context.project_repo && context.issue_number
+        ? issueUrl(context.project_repo, context.issue_number)
+        : undefined,
+      workflow: context.workflow,
+      trace_id: context.trace_id,
+      ...options,
+    })
+    axiom.ingest(DATASET, [entry])
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        `[${entry.agent}] ${entry.action} — ${entry.status} | client:${context.client_name} issue:#${context.issue_number}`,
+      )
+    }
+    return entry
+  },
+
+  /** Flush all pending logs — call before process exit or in API route cleanup */
   flush: async () => {
     await axiom.flush()
   },
 }
 
-export type { AgentName, ErrorCategory, LogLevel, LogStatus, SkoopedLogEntry }
+export type {
+  AgentName,
+  ErrorCategory,
+  LogLevel,
+  LogStatus,
+  ProjectRepo,
+  SkoopedLogEntry,
+  WorkContext,
+  Workflow,
+}
