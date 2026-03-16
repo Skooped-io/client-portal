@@ -1,4 +1,5 @@
 import { Axiom } from '@axiomhq/js'
+import { DATASETS } from './datasets'
 import type {
   AgentName,
   ErrorCategory,
@@ -15,147 +16,53 @@ const axiom = new Axiom({
   orgId: process.env.AXIOM_ORG_ID ?? '',
 })
 
-const DATASET = process.env.AXIOM_DATASET ?? 'skooped-dev'
+const send = (dataset: string, entry: Record<string, unknown>) => {
+  axiom.ingest(dataset, [entry])
+}
 
-const createEntry = (
-  level: LogLevel,
-  agent: AgentName,
-  action: string,
-  status: LogStatus,
-  options?: Partial<Omit<SkoopedLogEntry, 'timestamp' | 'level' | 'agent' | 'action' | 'status'>>,
-): SkoopedLogEntry => ({
-  timestamp: new Date().toISOString(),
-  level,
-  agent,
-  action,
-  status,
-  ...options,
-})
+const ts = () => new Date().toISOString()
 
-/** Generate a GitHub issue URL from repo + issue number */
-const issueUrl = (repo: ProjectRepo, issueNumber: number): string =>
-  `https://github.com/Skooped-io/${repo}/issues/${issueNumber}`
+const issueUrl = (repo: ProjectRepo, num: number): string =>
+  `https://github.com/Skooped-io/${repo}/issues/${num}`
 
-export const logger = {
-  /** Standard info log */
-  info: (
-    agent: AgentName,
-    action: string,
-    status: LogStatus,
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('info', agent, action, status, options)
-    axiom.ingest(DATASET, [entry])
+// ============================================
+// OPS LOGGER — agent team activity
+// → skooped-ops dataset
+// ============================================
+
+export const ops = {
+  /** Log an agent action */
+  info: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
+    const entry = { timestamp: ts(), level: 'info', agent, action, status, ...options }
+    send(DATASETS.ops, entry)
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[${entry.agent}] ${entry.action} — ${entry.status}`, options?.metadata ?? '')
+      console.log(`[ops][${agent}] ${action} — ${status}`)
     }
     return entry
   },
 
-  /** Warning — something is off but not broken */
-  warn: (
-    agent: AgentName,
-    action: string,
-    status: LogStatus,
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('warn', agent, action, status, options)
-    axiom.ingest(DATASET, [entry])
-    console.warn(`[${entry.agent}] ⚠️ ${entry.action} — ${entry.status}`, options?.metadata ?? '')
+  warn: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
+    const entry = { timestamp: ts(), level: 'warn', agent, action, status, ...options }
+    send(DATASETS.ops, entry)
+    console.warn(`[ops][${agent}] ⚠️ ${action} — ${status}`)
     return entry
   },
 
-  /** Error — something broke */
-  error: (
-    agent: AgentName,
-    action: string,
-    error: string,
-    category: ErrorCategory = 'unknown',
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('error', agent, action, 'failed', {
-      error,
-      error_category: category,
-      ...options,
-    })
-    axiom.ingest(DATASET, [entry])
-    console.error(`[${entry.agent}] 🔴 ${entry.action} — ${error}`)
+  error: (agent: AgentName, action: string, error: string, category: ErrorCategory = 'unknown', options?: Partial<SkoopedLogEntry>) => {
+    const entry = { timestamp: ts(), level: 'error', agent, action, status: 'failed', error, error_category: category, ...options }
+    send(DATASETS.ops, entry)
+    console.error(`[ops][${agent}] 🔴 ${action} — ${error}`)
     return entry
   },
 
-  /** Critical — everything is on fire */
-  critical: (
-    agent: AgentName,
-    action: string,
-    error: string,
-    category: ErrorCategory = 'unknown',
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('critical', agent, action, 'failed', {
-      error,
-      error_category: category,
-      ...options,
-    })
-    axiom.ingest(DATASET, [entry])
-    console.error(`[${entry.agent}] 🚨 CRITICAL: ${entry.action} — ${error}`)
-    return entry
-  },
-
-  /** Debug — dev only */
-  debug: (
-    agent: AgentName,
-    action: string,
-    status: LogStatus,
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    if (process.env.NODE_ENV !== 'development') return
-    const entry = createEntry('debug', agent, action, status, options)
-    axiom.ingest(DATASET, [entry])
-    console.debug(`[${entry.agent}] 🔍 ${entry.action} — ${entry.status}`)
-    return entry
-  },
-
-  /** Track an LLM / AI call with token usage */
-  llm: (
-    agent: AgentName,
-    action: string,
-    model: string,
-    tokensUsed: number,
-    durationMs: number,
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('info', agent, action, 'completed', {
-      model,
-      tokens_used: tokensUsed,
-      duration_ms: durationMs,
-      ...options,
-    })
-    axiom.ingest(DATASET, [entry])
-    return entry
-  },
-
-  /**
-   * Log with full project context — use this for client/project work
-   *
-   * @example
-   * const ctx: WorkContext = {
-   *   client_id: 'uuid',
-   *   client_name: 'gunnsfencing',
-   *   project_repo: 'seo-engine',
-   *   issue_number: 42,
-   *   workflow: 'monthly_cycle',
-   *   trace_id: 'trace-abc123',
-   * }
-   * logger.task('scout', 'seo.audit.keywords', 'completed', ctx, { duration_ms: 4500 })
-   */
-  task: (
-    agent: AgentName,
-    action: string,
-    status: LogStatus,
-    context: WorkContext,
-    options?: Partial<SkoopedLogEntry>,
-  ) => {
-    const entry = createEntry('info', agent, action, status, {
+  /** Log a project-scoped agent task with full context */
+  task: (agent: AgentName, action: string, status: LogStatus, context: WorkContext, options?: Partial<SkoopedLogEntry>) => {
+    const entry = {
+      timestamp: ts(),
+      level: 'info',
+      agent,
+      action,
+      status,
       client_id: context.client_id,
       client_name: context.client_name,
       project_repo: context.project_repo,
@@ -166,20 +73,142 @@ export const logger = {
       workflow: context.workflow,
       trace_id: context.trace_id,
       ...options,
-    })
-    axiom.ingest(DATASET, [entry])
+    }
+    send(DATASETS.ops, entry)
     if (process.env.NODE_ENV === 'development') {
-      console.log(
-        `[${entry.agent}] ${entry.action} — ${entry.status} | client:${context.client_name} issue:#${context.issue_number}`,
-      )
+      console.log(`[ops][${agent}] ${action} — ${status} | ${context.client_name} #${context.issue_number}`)
     }
     return entry
   },
 
-  /** Flush all pending logs — call before process exit or in API route cleanup */
-  flush: async () => {
-    await axiom.flush()
+  /** Track LLM / AI token usage */
+  llm: (agent: AgentName, action: string, model: string, tokensUsed: number, durationMs: number, options?: Partial<SkoopedLogEntry>) => {
+    const entry = { timestamp: ts(), level: 'info', agent, action, status: 'completed', model, tokens_used: tokensUsed, duration_ms: durationMs, ...options }
+    send(DATASETS.ops, entry)
+    return entry
   },
+}
+
+// ============================================
+// CLIENT LOGGER — business metrics and data
+// → skooped-clients dataset
+// ============================================
+
+export interface ClientMetric {
+  timestamp: string
+  client_id: string
+  client_name: string
+  metric_type: string
+  source: string
+  data: Record<string, unknown>
+}
+
+export const clients = {
+  /** Log a client business metric (SEO, ads, content, etc) */
+  metric: (clientId: string, clientName: string, metricType: string, source: string, data: Record<string, unknown>) => {
+    const entry: ClientMetric = {
+      timestamp: ts(),
+      client_id: clientId,
+      client_name: clientName,
+      metric_type: metricType,
+      source,
+      data,
+    }
+    send(DATASETS.clients, entry)
+    return entry
+  },
+
+  /** Log a client SEO data pull */
+  seo: (clientId: string, clientName: string, data: Record<string, unknown>) => {
+    return clients.metric(clientId, clientName, 'seo', 'google_search_console', data)
+  },
+
+  /** Log client ad performance */
+  ads: (clientId: string, clientName: string, data: Record<string, unknown>) => {
+    return clients.metric(clientId, clientName, 'ads', 'google_ads', data)
+  },
+
+  /** Log client content engagement */
+  content: (clientId: string, clientName: string, data: Record<string, unknown>) => {
+    return clients.metric(clientId, clientName, 'content', 'meta_api', data)
+  },
+
+  /** Log client GBP metrics */
+  gbp: (clientId: string, clientName: string, data: Record<string, unknown>) => {
+    return clients.metric(clientId, clientName, 'gbp', 'google_business_profile', data)
+  },
+}
+
+// ============================================
+// PORTAL LOGGER — app-level events
+// → skooped-portal dataset
+// ============================================
+
+export interface PortalEvent {
+  timestamp: string
+  level: LogLevel
+  action: string
+  status: LogStatus
+  user_id?: string
+  path?: string
+  method?: string
+  status_code?: number
+  duration_ms?: number
+  error?: string
+  metadata?: Record<string, unknown>
+}
+
+export const portal = {
+  /** Log an app-level event (auth, API call, etc) */
+  event: (action: string, status: LogStatus, options?: Partial<PortalEvent>) => {
+    const entry: PortalEvent = { timestamp: ts(), level: 'info', action, status, ...options }
+    send(DATASETS.portal, entry)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[portal] ${action} — ${status}`)
+    }
+    return entry
+  },
+
+  /** Log an API route call */
+  api: (method: string, path: string, statusCode: number, durationMs: number, options?: Partial<PortalEvent>) => {
+    const level: LogLevel = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info'
+    const status: LogStatus = statusCode >= 400 ? 'failed' : 'completed'
+    const entry: PortalEvent = { timestamp: ts(), level, action: 'api.request', status, method, path, status_code: statusCode, duration_ms: durationMs, ...options }
+    send(DATASETS.portal, entry)
+    return entry
+  },
+
+  /** Log an auth event */
+  auth: (action: string, status: LogStatus, userId?: string, options?: Partial<PortalEvent>) => {
+    const entry: PortalEvent = { timestamp: ts(), level: status === 'failed' ? 'warn' : 'info', action: `auth.${action}`, status, user_id: userId, ...options }
+    send(DATASETS.portal, entry)
+    return entry
+  },
+
+  /** Log an error */
+  error: (action: string, error: string, options?: Partial<PortalEvent>) => {
+    const entry: PortalEvent = { timestamp: ts(), level: 'error', action, status: 'failed', error, ...options }
+    send(DATASETS.portal, entry)
+    console.error(`[portal] 🔴 ${action} — ${error}`)
+    return entry
+  },
+}
+
+// ============================================
+// FLUSH — call before process exit
+// ============================================
+
+export const flush = async () => {
+  await axiom.flush()
+}
+
+// ============================================
+// LEGACY COMPAT — default export for existing code
+// ============================================
+
+export const logger = {
+  ...ops,
+  flush,
 }
 
 export type {
