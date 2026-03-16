@@ -30,8 +30,8 @@ This PRD covers the v1 scaffold: project setup, auth flow, layout/navigation, an
 
 ## Supabase Connection
 
-- **Project URL:** `https://ordxzakffddgytanahnc.supabase.co`
-- **Anon Key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9yZHh6YWtmZmRkZ3l0YW5haG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1OTQxMDAsImV4cCI6MjA4OTE3MDEwMH0.W86DqwM15V63CURzfYE84iageG75GK9RhGoapZutU5Q`
+- **Project URL:** `[REDACTED - see .env.local]`
+- **Anon Key:** `[REDACTED - see .env.local]`
 - Store these in `.env.local` (gitignored)
 
 ## Design System
