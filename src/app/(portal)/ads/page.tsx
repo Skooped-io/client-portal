@@ -26,6 +26,9 @@ import { PageTransition } from '@/components/motion/PageTransition'
 import { Skeleton } from '@/components/motion/Skeleton'
 import { stagger, slideUp } from '@/lib/animations/variants'
 import { cn } from '@/lib/utils'
+import { ChartWrapper, AreaChartBranded, BarChartBranded, SparklineChart } from '@/components/charts'
+import { chartColors, generateSparklineData } from '@/lib/chart-theme'
+import { generateAdSpendData, ctrByCampaign } from '@/lib/chart-demo-data'
 
 // ===== Demo Data =====
 
@@ -104,6 +107,11 @@ const weeklyLeads = [
   { week: 'Wk 5', leads: 16 },
   { week: 'Wk 6', leads: 22 },
 ]
+
+const AD_SPEND_DATA   = generateAdSpendData(8)
+const SPEND_SPARK     = generateSparklineData('up', 12)
+const CONV_SPARK      = generateSparklineData('up', 12)
+const CPC_SPARK       = generateSparklineData('down', 12)
 
 // ===== Sub-components =====
 
@@ -330,6 +338,66 @@ export default function AdsPage() {
             })}
           </motion.div>
         </motion.div>
+
+        {/* Ad Spend vs Conversions */}
+        <ChartWrapper
+          title="Ad Spend vs Conversions"
+          subtitle="Weekly — 8 weeks"
+          variant="strawberry"
+          badge={<SampleBadge />}
+          legend={[
+            { label: 'Spend ($)',      color: chartColors.strawberry },
+            { label: 'Conversions',    color: chartColors.mint       },
+          ]}
+        >
+          <AreaChartBranded
+            data={AD_SPEND_DATA}
+            series={[
+              { dataKey: 'spend',       label: 'Spend ($)',   color: chartColors.strawberry },
+              { dataKey: 'conversions', label: 'Conversions', color: chartColors.mint       },
+            ]}
+            xKey="date"
+            height={220}
+            xTickEvery={2}
+            yTickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`}
+          />
+        </ChartWrapper>
+
+        {/* CTR by Campaign */}
+        <ChartWrapper
+          title="CTR by Campaign"
+          subtitle="Click-through rate %"
+          variant="blueberry"
+          badge={<SampleBadge />}
+        >
+          <BarChartBranded
+            data={ctrByCampaign}
+            dataKey="ctr"
+            label="CTR %"
+            xKey="campaign"
+            color={chartColors.blueberry}
+            height={200}
+            yTickFormatter={(v) => `${v}%`}
+            multiColor
+          />
+        </ChartWrapper>
+
+        {/* CPC Sparklines */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { label: 'Total Spend',    data: SPEND_SPARK, color: chartColors.strawberry, value: `$${AD_SPEND_DATA.reduce((a,b) => a + b.spend, 0).toLocaleString()}` },
+            { label: 'Conversions',    data: CONV_SPARK,  color: chartColors.mint,       value: AD_SPEND_DATA.reduce((a,b) => a + b.conversions, 0).toString() },
+            { label: 'Avg. CPC',       data: CPC_SPARK,   color: chartColors.gold,       value: `$${(AD_SPEND_DATA.reduce((a,b) => a + b.cpc, 0) / AD_SPEND_DATA.length).toFixed(2)}` },
+          ].map((card) => (
+            <Card key={card.label} className="bg-card border-border rounded-xl overflow-hidden">
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">{card.label}</p>
+                <p className="text-2xl font-nunito font-bold text-foreground mb-2">{card.value}</p>
+                <SparklineChart data={card.data} color={card.color} height={36} showTooltip />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
         {/* CPL Ring + Funnel */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

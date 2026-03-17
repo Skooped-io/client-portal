@@ -7,12 +7,50 @@ export const chartColors = {
   vanilla:    '#E8C87A',
   blueberry:  '#5B8DEF',
   gold:       '#C99035',
+  chocolate:  '#6E3D20',
+  maroon:     '#6D1326',
   // Dark mode specific
   gridLineDark:  'rgba(255,255,255,0.06)',
   gridLineLight: 'rgba(54,28,36,0.08)',
   axisTextDark:  'rgba(255,255,255,0.40)',
   axisTextLight: 'rgba(54,28,36,0.45)',
 } as const
+
+// Multi-series color cycling order
+export const seriesPalette = [
+  chartColors.strawberry,
+  chartColors.blueberry,
+  chartColors.vanilla,
+  chartColors.mint,
+  chartColors.gold,
+  chartColors.chocolate,
+] as const
+
+// Gradient stop pairs for area fills [topOpacity, bottomOpacity]
+export const gradientOpacities = {
+  strawberry: [0.30, 0] as [number, number],
+  blueberry:  [0.25, 0] as [number, number],
+  vanilla:    [0.28, 0] as [number, number],
+  mint:       [0.25, 0] as [number, number],
+  gold:       [0.28, 0] as [number, number],
+}
+
+// SVG glow filter configs — used to build <filter> elements inline
+export const glowFilters = {
+  strawberry: { id: 'glow-strawberry', stdDeviation: 3 },
+  blueberry:  { id: 'glow-blueberry',  stdDeviation: 3 },
+  vanilla:    { id: 'glow-vanilla',    stdDeviation: 2.5 },
+  mint:       { id: 'glow-mint',       stdDeviation: 2.5 },
+  gold:       { id: 'glow-gold',       stdDeviation: 2.5 },
+} as const
+
+// Recharts animation config presets
+export const chartAnimations = {
+  default: { isAnimationActive: true, animationDuration: 900, animationEasing: 'ease-out' as const },
+  fast:    { isAnimationActive: true, animationDuration: 600, animationEasing: 'ease-out' as const },
+  slow:    { isAnimationActive: true, animationDuration: 1200, animationEasing: 'ease-in-out' as const },
+  none:    { isAnimationActive: false, animationDuration: 0,   animationEasing: 'ease-out' as const },
+}
 
 // Demo sparkline data for metric cards
 export function generateSparklineData(trend: 'up' | 'down' | 'flat', points = 14) {

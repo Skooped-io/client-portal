@@ -1,4 +1,4 @@
-import { ArrowRight, BarChart2, Calendar, Zap } from 'lucide-react'
+import { ArrowRight, BarChart2, Calendar, PieChart, Target, Zap } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,6 +11,8 @@ import { ContentCalendar } from '@/components/dashboard/ContentCalendar'
 import { AgentActivityFeed } from '@/components/dashboard/AgentActivityFeed'
 import { AIInsightsPanel } from '@/components/dashboard/AIInsightsPanel'
 import { DashboardTourWrapper } from '@/components/dashboard/DashboardTourWrapper'
+import { DonutChartBranded, ProgressRing } from '@/components/charts'
+import { trafficSources, seoHealthScore } from '@/lib/chart-demo-data'
 
 // ===== Skeleton fallbacks =====
 
@@ -154,6 +156,87 @@ export default async function DashboardPage() {
         <div>
           <AIInsightsPanel />
         </div>
+      </div>
+
+      {/* Traffic Sources + SEO Health */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        {/* Traffic Sources Donut */}
+        <Card className="bg-card border-border rounded-xl overflow-hidden">
+          <CardHeader className="pb-2 relative">
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blueberry via-strawberry to-vanilla-500 opacity-70" />
+            <div className="flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-blueberry" />
+              <CardTitle className="text-sm font-nunito font-semibold">Traffic Sources</CardTitle>
+              <span className="ml-auto text-xs text-muted-foreground">Last 30 days</span>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <DonutChartBranded
+              data={trafficSources}
+              centerLabel="5 Sources"
+              centerSublabel="of traffic"
+              height={200}
+              innerRadius={50}
+              outerRadius={80}
+            />
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2">
+              {trafficSources.map((s) => (
+                <div key={s.name} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                  <span className="text-xs text-muted-foreground truncate">{s.name}</span>
+                  <span className="text-xs font-medium text-foreground ml-auto">{s.value}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* SEO Health Progress Ring */}
+        <Card className="bg-card border-border rounded-xl overflow-hidden">
+          <CardHeader className="pb-2 relative">
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-strawberry via-gold to-mint opacity-70" />
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-strawberry" />
+              <CardTitle className="text-sm font-nunito font-semibold">SEO Health Score</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4 py-4">
+            <ProgressRing
+              value={seoHealthScore}
+              size={128}
+              strokeWidth={9}
+              color="#D94A7A"
+              label={`${seoHealthScore}%`}
+              sublabel="health score"
+            />
+            <div className="w-full space-y-2 max-w-xs">
+              {[
+                { label: 'Title tags optimised', pct: 82, color: '#D94A7A' },
+                { label: 'Page speed score',     pct: 68, color: '#5B8DEF' },
+                { label: 'Backlink authority',   pct: 71, color: '#C99035' },
+              ].map((item) => (
+                <div key={item.label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className="font-medium text-foreground">{item.pct}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-1000"
+                      style={{ width: `${item.pct}%`, background: item.color }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Link href="/seo">
+              <Button variant="ghost" size="sm" className="text-xs text-strawberry gap-1 h-7 hover:bg-strawberry/10">
+                View full SEO report
+                <ArrowRight className="w-3 h-3" />
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Content Calendar */}

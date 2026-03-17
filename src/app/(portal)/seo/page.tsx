@@ -12,21 +12,15 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PageTransition } from '@/components/motion/PageTransition'
 import { Skeleton } from '@/components/motion/Skeleton'
 import { stagger, slideUp } from '@/lib/animations/variants'
 import { cn } from '@/lib/utils'
+import { ChartWrapper, AreaChartBranded, LineChartBranded, ProgressRing } from '@/components/charts'
+import { chartColors } from '@/lib/chart-theme'
+import { generateKeywordRankingData, generateOrganicData, seoHealthScore } from '@/lib/chart-demo-data'
 
 // ===== Demo Data =====
 
@@ -40,6 +34,9 @@ const impressionsData = [
   { date: 'Mar 25', impressions: 2450, clicks: 189 },
   { date: 'Mar 29', impressions: 2680, clicks: 214 },
 ]
+
+const KEYWORD_TREND_DATA = generateKeywordRankingData(8)
+const ORGANIC_DATA = generateOrganicData(10)
 
 const keywordData = [
   { keyword: 'fence installation near me', position: 3, prev: 5, volume: 1200, clicks: 48 },
@@ -101,52 +98,19 @@ function TrendLabel({ current, prev }: { current: number; prev: number }) {
 }
 
 function GBPRing({ score }: { score: number }) {
-  const radius = 44
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (score / 100) * circumference
-
+  const color = score >= 80 ? '#4CAF50' : score >= 60 ? '#C99035' : '#D94A7A'
   return (
-    <div className="relative w-28 h-28 flex items-center justify-center">
-      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
-        <circle
-          cx="50" cy="50" r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="8"
-          className="text-border"
-        />
-        <motion.circle
-          cx="50" cy="50" r={radius}
-          fill="none"
-          stroke="#48C78E"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
-        />
-      </svg>
-      <div className="text-center">
-        <span className="text-2xl font-bold font-nunito text-foreground">{score}%</span>
-      </div>
-    </div>
+    <ProgressRing
+      value={score}
+      size={112}
+      strokeWidth={8}
+      color={color}
+      label={`${score}%`}
+      sublabel="profile health"
+    />
   )
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-xl border border-border bg-popover px-3 py-2 shadow-xl text-sm">
-      <p className="text-muted-foreground text-xs mb-1">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.dataKey} className="font-medium" style={{ color: p.color }}>
-          {p.name}: {p.value.toLocaleString()}
-        </p>
-      ))}
-    </div>
-  )
-}
 
 // ===== Main page =====
 
@@ -235,86 +199,79 @@ export default function SeoPage() {
         </motion.div>
 
         {/* Impressions / Clicks Chart */}
-        <motion.div variants={slideUp} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
-          <Card className="bg-card border-border rounded-xl">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Search className="w-4 h-4 text-strawberry" />
-                  <CardTitle className="text-sm font-nunito font-semibold">Impressions & Clicks</CardTitle>
-                </div>
-                <SampleBadge />
-              </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-              {loading ? (
-                <Skeleton className="h-56 w-full rounded-lg" />
-              ) : (
-                <div className="dark:[filter:drop-shadow(0_0_8px_rgba(99,102,241,0.3))]">
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={impressionsData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                      <defs>
-                        <linearGradient id="seo-imp-fill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#FBE98A" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#FBE98A" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="seo-click-fill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366F1" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={40}
-                      />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="impressions"
-                        name="Impressions"
-                        stroke="#FBE98A"
-                        fill="url(#seo-imp-fill)"
-                        strokeWidth={1.5}
-                        isAnimationActive
-                        animationDuration={800}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="clicks"
-                        name="Clicks"
-                        stroke="#6366F1"
-                        fill="url(#seo-click-fill)"
-                        strokeWidth={2}
-                        isAnimationActive
-                        animationDuration={800}
-                        animationBegin={150}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              <div className="flex items-center gap-4 mt-3 px-1">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="w-3 h-0.5 bg-[#FBE98A] rounded-full" />
-                  Impressions
-                </span>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="w-3 h-0.5 bg-[#6366F1] rounded-full" />
-                  Clicks
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <ChartWrapper
+          title="Impressions & Clicks"
+          variant="gold"
+          badge={<SampleBadge />}
+          legend={[
+            { label: 'Impressions', color: chartColors.vanilla },
+            { label: 'Clicks',      color: chartColors.blueberry },
+          ]}
+        >
+          {loading ? (
+            <Skeleton className="h-56 w-full rounded-lg" />
+          ) : (
+            <AreaChartBranded
+              data={impressionsData}
+              series={[
+                { dataKey: 'impressions', label: 'Impressions', color: chartColors.vanilla  },
+                { dataKey: 'clicks',      label: 'Clicks',      color: chartColors.blueberry },
+              ]}
+              xKey="date"
+              height={220}
+              xTickEvery={2}
+            />
+          )}
+        </ChartWrapper>
+
+        {/* Keyword Position Trend */}
+        <ChartWrapper
+          title="Keyword Position Trends"
+          subtitle="Top 3 keywords — lower position = better ranking"
+          variant="strawberry"
+          badge={<SampleBadge />}
+          legend={[
+            { label: 'Fence Installation',   color: chartColors.strawberry },
+            { label: 'Vinyl Fencing Co.',    color: chartColors.blueberry  },
+            { label: 'Wood Fence Cost',      color: chartColors.gold       },
+          ]}
+        >
+          <LineChartBranded
+            data={KEYWORD_TREND_DATA}
+            series={[
+              { dataKey: 'kw1', label: 'Fence Installation',  color: chartColors.strawberry },
+              { dataKey: 'kw2', label: 'Vinyl Fencing Co.',   color: chartColors.blueberry  },
+              { dataKey: 'kw3', label: 'Wood Fence Cost',     color: chartColors.gold       },
+            ]}
+            xKey="date"
+            height={220}
+            xTickEvery={2}
+            invertY
+          />
+        </ChartWrapper>
+
+        {/* Organic Traffic Area */}
+        <ChartWrapper
+          title="Organic Traffic"
+          subtitle="Impressions & clicks over 10 weeks"
+          variant="blueberry"
+          badge={<SampleBadge />}
+          legend={[
+            { label: 'Impressions', color: chartColors.vanilla  },
+            { label: 'Clicks',      color: chartColors.blueberry },
+          ]}
+        >
+          <AreaChartBranded
+            data={ORGANIC_DATA}
+            series={[
+              { dataKey: 'impressions', label: 'Impressions', color: chartColors.vanilla  },
+              { dataKey: 'clicks',      label: 'Clicks',      color: chartColors.blueberry },
+            ]}
+            xKey="date"
+            height={200}
+            xTickEvery={2}
+          />
+        </ChartWrapper>
 
         {/* Keywords Table + GBP Card */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
