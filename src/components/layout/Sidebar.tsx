@@ -24,12 +24,26 @@ import {
 } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { logoutAction } from '@/app/(portal)/actions'
 import { cn } from '@/lib/utils'
 import { getInitials } from '@/lib/utils'
 import { sidebarLabelVariants, avatarBreathe } from '@/lib/animations/variants'
+
+// ===== Scoop icon for sidebar header accent =====
+
+function ScoopAccent() {
+  return (
+    <svg width="18" height="20" viewBox="0 0 18 20" fill="none" aria-hidden="true" className="shrink-0">
+      <ellipse cx="9" cy="8" rx="7" ry="6.5" fill="#D94A7A" opacity={0.85} />
+      <ellipse cx="7" cy="5.5" rx="2.5" ry="1.8" fill="white" opacity={0.35} />
+      {/* cone */}
+      <polygon points="3,13 15,13 9,20" fill="#C99035" />
+      <line x1="4" y1="15" x2="14" y2="15" stroke="#A07820" strokeWidth="0.8" opacity={0.5} />
+      <line x1="5.5" y1="17.5" x2="12.5" y2="17.5" stroke="#A07820" strokeWidth="0.8" opacity={0.5} />
+    </svg>
+  )
+}
 
 // ===== Navigation Items =====
 
@@ -178,9 +192,14 @@ function AgentAvatarStrip({ isCollapsed }: { isCollapsed: boolean }) {
       )}
     >
       {!isCollapsed && (
-        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
-          Your Team
-        </p>
+        <div className="flex items-center gap-1.5 mb-2 px-1">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Your AI Team</span>
+          {/* Live indicator */}
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+          </span>
+        </div>
       )}
       <div className={cn('flex', isCollapsed ? 'flex-col gap-2 items-center' : 'flex-wrap gap-1.5')}>
         {agents.map((agent) => (
@@ -258,20 +277,21 @@ function SidebarContent({
         )}
       >
         <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-strawberry flex items-center justify-center shrink-0 shadow-sm">
-            <span className="text-white font-nunito font-bold text-sm">S</span>
+          <div className="w-8 h-8 rounded-lg bg-strawberry flex items-center justify-center shrink-0 shadow-strawberry-glow">
+            <ScoopAccent />
           </div>
           <AnimatePresence initial={false}>
             {!isCollapsed && (
-              <motion.span
+              <motion.div
                 variants={sidebarLabelVariants}
                 initial="collapsed"
                 animate="expanded"
                 exit="collapsed"
-                className="font-nunito font-bold text-foreground text-base overflow-hidden whitespace-nowrap"
+                className="overflow-hidden whitespace-nowrap"
               >
-                Skooped
-              </motion.span>
+                <span className="font-nunito font-bold text-foreground text-base">Skooped</span>
+                <span className="block text-[9px] font-medium text-strawberry tracking-wider uppercase opacity-70 -mt-0.5">Client Portal</span>
+              </motion.div>
             )}
           </AnimatePresence>
         </Link>
@@ -372,43 +392,114 @@ interface SidebarProps {
   userEmail: string
 }
 
+// ===== Mobile Bottom Navigation =====
+
+const mobileNavItems = [
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'SEO', href: '/seo', icon: Search },
+  { label: 'Ads', href: '/ads', icon: Megaphone },
+  { label: 'Content', href: '/content', icon: Pencil },
+  { label: 'Team', href: '/team', icon: Users },
+]
+
+function MobileBottomNav() {
+  const pathname = usePathname()
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background/90 border-t border-border backdrop-blur-md">
+      <div className="flex items-center justify-around px-1 py-1.5 safe-bottom">
+        {mobileNavItems.map((item) => {
+          const Icon = item.icon
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors min-w-[52px] min-h-[44px] justify-center',
+                isActive
+                  ? 'text-strawberry'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="mobile-nav-active"
+                  className="absolute inset-0 bg-strawberry/10 rounded-xl"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              <Icon className="w-5 h-5 relative z-10" />
+              <span className="text-[9px] font-medium relative z-10 leading-tight">{item.label}</span>
+            </Link>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
 export function Sidebar({ userName, userEmail }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
 
   return (
     <>
-      {/* Mobile hamburger trigger */}
-      <div className="fixed top-4 left-4 z-40 md:hidden">
+      {/* Mobile hamburger trigger — shows only when bottom nav doesn't cover the page sufficiently */}
+      <div className="fixed top-3 left-3 z-40 md:hidden">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setIsMobileOpen(true)}
-          className="h-9 w-9 bg-background border border-border shadow-sm rounded-xl"
+          className="h-9 w-9 bg-background/90 border border-border shadow-sm rounded-xl backdrop-blur-sm"
         >
           <Menu className="w-5 h-5" />
           <span className="sr-only">Open menu</span>
         </Button>
       </div>
 
-      {/* Mobile sheet sidebar */}
-      <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-        <SheetContent side="left" className="p-0 w-64 border-0">
-          <button
-            onClick={() => setIsMobileOpen(false)}
-            className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring z-10"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </button>
-          <SidebarContent
-            userName={userName}
-            userEmail={userEmail}
-            isCollapsed={false}
-            showToggle={false}
-          />
-        </SheetContent>
-      </Sheet>
+      {/* Mobile bottom navigation */}
+      <MobileBottomNav />
+
+      {/* Mobile slide-out drawer (full nav) */}
+      <AnimatePresence>
+        {isMobileOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="mobile-backdrop"
+              className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.div
+              key="mobile-drawer"
+              className="fixed left-0 top-0 bottom-0 z-50 w-72 md:hidden shadow-2xl"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            >
+              <button
+                onClick={() => setIsMobileOpen(false)}
+                className="absolute right-3 top-3 z-10 p-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
+              <SidebarContent
+                userName={userName}
+                userEmail={userEmail}
+                isCollapsed={false}
+                showToggle={false}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Desktop sidebar — animated width */}
       <motion.div

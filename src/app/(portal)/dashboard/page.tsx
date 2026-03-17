@@ -132,8 +132,10 @@ export default async function DashboardPage() {
       <div id="dashboard-chart-section" className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Main chart — 2/3 width on xl */}
         <div className="xl:col-span-2">
-          <Card className="bg-card border-border rounded-xl h-full">
-            <CardHeader className="pb-2">
+          <Card className="bg-card border-border rounded-xl h-full overflow-hidden">
+            <CardHeader className="pb-2 relative">
+              {/* Ice cream gradient accent top bar */}
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-strawberry via-vanilla-500 to-mint opacity-80" />
               <div className="flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-strawberry" />
                 <CardTitle className="text-sm font-nunito font-semibold">Traffic & Impressions</CardTitle>
@@ -155,8 +157,10 @@ export default async function DashboardPage() {
       </div>
 
       {/* Content Calendar */}
-      <Card className="bg-card border-border rounded-xl">
-        <CardHeader className="pb-3">
+      <Card className="bg-card border-border rounded-xl overflow-hidden">
+        <CardHeader className="pb-3 relative">
+          {/* Gold/vanilla gradient for content section */}
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-gold via-vanilla-500 to-gold opacity-70" />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-strawberry" />
@@ -180,8 +184,9 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Activity Feed — 2/3 */}
         <div className="lg:col-span-2">
-          <Card className="bg-card border-border rounded-xl">
-            <CardHeader className="pb-3">
+          <Card className="bg-card border-border rounded-xl overflow-hidden">
+            <CardHeader className="pb-3 relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-strawberry via-mint to-blueberry opacity-60" />
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-strawberry" />
@@ -204,8 +209,9 @@ export default async function DashboardPage() {
 
         {/* Quick Actions — 1/3 */}
         <div>
-          <Card className="bg-card border-border rounded-xl">
-            <CardHeader>
+          <Card className="bg-card border-border rounded-xl overflow-hidden">
+            <CardHeader className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-gold to-vanilla-500 opacity-70" />
               <CardTitle className="text-sm font-nunito font-semibold">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">

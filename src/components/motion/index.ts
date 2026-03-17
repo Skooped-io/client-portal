@@ -9,3 +9,5 @@ export {
   SkeletonTableRows,
   SkeletonAvatar,
 } from './Skeleton'
+export { IceCreamLoader, IceCreamSpinner } from './IceCreamLoader'
+export { SprinkleConfetti, useSprinkleConfetti } from './SprinkleConfetti'

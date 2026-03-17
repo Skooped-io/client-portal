@@ -63,7 +63,8 @@ export default async function PortalLayout({ children }: PortalLayoutProps) {
           clientName={fullName}
           businessName={businessName}
         >
-          <main className="flex-1 overflow-y-auto scrollbar-thin">
+          {/* pb-20 on mobile to account for bottom navigation bar */}
+          <main className="flex-1 overflow-y-auto scrollbar-thin pb-20 md:pb-0">
             <PageTransition>
               {children}
             </PageTransition>

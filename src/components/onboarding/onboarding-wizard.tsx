@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
 import { StepProgress } from './step-progress'
 import { BusinessBasicsStep } from './business-basics-step'
 import { LocationStep } from './location-step'
@@ -9,6 +10,29 @@ import { GoogleConnectStep } from './google-connect-step'
 import { MetaConnectStep } from './meta-connect-step'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import type { BusinessProfile, OnboardingProgress, OauthConnection } from '@/lib/types'
+
+// ===== Ice cream scoop step icon =====
+
+function StepScoopIcon({ step }: { step: number }) {
+  const colors = ['#D94A7A', '#E8C87A', '#4CAF50', '#5B8DEF', '#C99035']
+  const color = colors[(step - 1) % colors.length]
+  return (
+    <motion.div
+      initial={{ scale: 0, rotate: -20 }}
+      animate={{ scale: 1, rotate: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.2 }}
+      className="w-10 h-10 rounded-xl flex items-center justify-center mb-3"
+      style={{ backgroundColor: `${color}18`, border: `1.5px solid ${color}30` }}
+    >
+      <svg width="20" height="22" viewBox="0 0 20 22" fill="none" aria-hidden="true">
+        <ellipse cx="10" cy="9" rx="8" ry="7" fill={color} opacity={0.9} />
+        <ellipse cx="8" cy="6" rx="2.5" ry="1.8" fill="white" opacity={0.3} />
+        <polygon points="4,15 16,15 10,22" fill="#C99035" />
+        <line x1="5" y1="17" x2="15" y2="17" stroke="#A07820" strokeWidth="0.8" opacity={0.5} />
+      </svg>
+    </motion.div>
+  )
+}
 
 interface OnboardingWizardProps {
   currentStep: number
@@ -66,18 +90,29 @@ export function OnboardingWizard({
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="px-6 py-5 border-b border-border">
+      <header className="px-6 py-4 border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <span className="text-lg font-nunito font-bold text-foreground">Skooped</span>
-          <span className="text-sm text-muted-foreground font-dm-sans">
-            Step {currentStep} of {totalSteps}
-          </span>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-strawberry flex items-center justify-center shadow-strawberry-glow">
+              <svg width="14" height="16" viewBox="0 0 14 16" fill="none" aria-hidden="true">
+                <ellipse cx="7" cy="6" rx="5.5" ry="5" fill="white" opacity={0.9} />
+                <polygon points="2,10 12,10 7,16" fill="#E8C87A" />
+              </svg>
+            </div>
+            <span className="text-base font-nunito font-bold text-foreground">Skooped</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-strawberry" />
+            <span className="text-sm text-muted-foreground font-dm-sans">
+              Step {currentStep} of {totalSteps}
+            </span>
+          </div>
         </div>
       </header>
 
       {/* Content */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        <div className="w-full max-w-2xl space-y-8">
+        <div className="w-full max-w-2xl space-y-6">
           {/* Progress */}
           <StepProgress
             currentStep={currentStep}
@@ -86,8 +121,17 @@ export function OnboardingWizard({
           />
 
           {/* Step Card */}
-          <Card className="bg-card border-border rounded-xl">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+          >
+          <Card className="bg-card border-border rounded-xl overflow-hidden">
+            {/* Ice cream gradient accent */}
+            <div className="h-0.5 bg-gradient-to-r from-strawberry via-vanilla-500 to-mint" />
             <CardHeader className="pb-4">
+              <StepScoopIcon step={currentStep} />
               <CardTitle className="text-xl font-nunito text-foreground">
                 {stepConfig?.title}
               </CardTitle>
@@ -115,6 +159,12 @@ export function OnboardingWizard({
               )}
             </CardContent>
           </Card>
+          </motion.div>
+
+          {/* Ice cream flavor tagline */}
+          <p className="text-center text-xs text-muted-foreground">
+            🍦 You&apos;re one scoop closer to growing your business
+          </p>
         </div>
       </main>
     </div>

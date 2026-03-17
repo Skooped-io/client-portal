@@ -226,6 +226,11 @@
   .font-nunito { font-family: var(--font-nunito), system-ui, sans-serif; }
   .font-dm-sans { font-family: var(--font-dm-sans), system-ui, sans-serif; }
 
+  /* ===== Mobile safe area bottom ===== */
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px);
+  }
+
   /* ===== Portal layout utilities ===== */
   .portal-grid {
     display: grid;
@@ -250,6 +255,125 @@
     background-color: hsl(var(--border));
     border-radius: 9999px;
   }
+}
+
+/* ===== Auth Pages — Ice cream gradient background ===== */
+@keyframes ice-cream-gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.ice-cream-bg-gradient {
+  background: linear-gradient(
+    135deg,
+    #fce4ec 0%,     /* strawberry blush */
+    #fff8e1 20%,    /* vanilla glow */
+    #e8f5e9 40%,    /* mint mist */
+    #fff3e0 60%,    /* peach cream */
+    #fce4ec 80%,    /* strawberry blush again */
+    #e8f5e9 100%    /* back to mint */
+  );
+  background-size: 300% 300%;
+  animation: ice-cream-gradient-shift 12s ease infinite;
+}
+
+.dark .ice-cream-bg-gradient {
+  background: linear-gradient(
+    135deg,
+    #2a1020 0%,
+    #1e1a10 20%,
+    #0e1a12 40%,
+    #1e1410 60%,
+    #2a1020 80%,
+    #0e1a12 100%
+  );
+  background-size: 300% 300%;
+  animation: ice-cream-gradient-shift 12s ease infinite;
+}
+
+/* Glassmorphism auth card */
+.auth-glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 32px rgba(217, 74, 122, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.dark .auth-glass-card {
+  background: rgba(42, 30, 34, 0.82);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid rgba(217, 74, 122, 0.15);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Auth inputs get a softer look on the glassmorphism card */
+.auth-input {
+  background: rgba(255, 255, 255, 0.6) !important;
+  border-color: rgba(217, 74, 122, 0.2) !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease !important;
+}
+
+.auth-input:focus {
+  border-color: #D94A7A !important;
+  box-shadow: 0 0 0 3px rgba(217, 74, 122, 0.12) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+.dark .auth-input {
+  background: rgba(26, 18, 22, 0.6) !important;
+  border-color: rgba(217, 74, 122, 0.2) !important;
+}
+
+.dark .auth-input:focus {
+  background: rgba(42, 30, 34, 0.8) !important;
+}
+
+/* ===== Dark mode card enhancements ===== */
+
+/* Premium gradient overlays on cards in dark mode */
+.dark .card-premium {
+  background: linear-gradient(
+    135deg,
+    hsl(var(--card)) 0%,
+    hsl(340 22% 15%) 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .card-premium::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(217, 74, 122, 0.04) 0%,
+    transparent 60%
+  );
+  pointer-events: none;
+}
+
+/* Enhanced glow for agent cards in dark mode */
+.dark .agent-card-glow:hover {
+  box-shadow:
+    0 0 0 1px rgba(217, 74, 122, 0.3),
+    0 8px 32px -8px rgba(217, 74, 122, 0.35),
+    0 0 60px -20px rgba(217, 74, 122, 0.2) !important;
+}
+
+/* Chart glow in dark mode */
+.dark .chart-line-glow path,
+.dark .chart-line-glow line {
+  filter: drop-shadow(0 0 6px rgba(217, 74, 122, 0.6)) drop-shadow(0 0 12px rgba(217, 74, 122, 0.3));
 }
 
 /* ===== Driver.js — Skooped branded tour ===== */

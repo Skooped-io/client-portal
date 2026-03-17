@@ -790,6 +790,7 @@ export default function TeamPage() {
         </motion.div>
 
         {/* ===== Agent Card Grid ===== */}
+        <h2 className="sr-only">Meet the Agents</h2>
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-12">
             {[...Array(7)].map((_, i) => <AgentCardSkeleton key={i} />)}

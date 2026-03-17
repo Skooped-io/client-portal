@@ -97,10 +97,12 @@ export function MetricCard({
         y: -2,
         boxShadow: isDemo
           ? undefined
-          : '0 8px 24px -4px rgba(217, 74, 122, 0.18)',
+          : '0 8px 24px -4px rgba(217, 74, 122, 0.22), 0 0 0 1px rgba(217, 74, 122, 0.08)',
       }}
       whileTap={{ scale: 0.99 }}
     >
+      {/* Ice cream gradient accent top bar */}
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-strawberry/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
       {/* Demo badge */}
       {isDemo && (
         <span className="absolute top-2.5 right-2.5 z-10 px-2 py-0.5 text-[10px] font-medium rounded-full bg-muted/60 border border-border text-muted-foreground backdrop-blur-sm">
