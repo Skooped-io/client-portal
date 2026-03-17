@@ -20,6 +20,7 @@ import {
   X,
   Users,
   FileText,
+  Pencil,
 } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -35,9 +36,10 @@ import { sidebarLabelVariants, avatarBreathe } from '@/lib/animations/variants'
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { label: 'SEO', href: '/seo', icon: Search },
+  { label: 'SEO & Rankings', href: '/seo', icon: Search },
+  { label: 'Ads & Leads', href: '/ads', icon: Megaphone },
+  { label: 'Content & Social', href: '/content', icon: Pencil },
   { label: 'Social', href: '/social', icon: Instagram },
-  { label: 'Ads', href: '/ads', icon: Megaphone },
   { label: 'Website', href: '/website', icon: Globe },
   { label: 'Reports', href: '/reports', icon: FileText },
   { label: 'Team', href: '/team', icon: Users },

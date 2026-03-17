@@ -17,6 +17,7 @@ import {
   MessageSquare,
   ArrowRight,
   Hash,
+  Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { commandPaletteOverlay, commandPaletteModal } from '@/lib/animations/variants'
@@ -59,7 +60,25 @@ const COMMANDS: CommandItem[] = [
     icon: Search,
     action: '/seo',
     type: 'navigate',
-    keywords: ['keywords', 'google', 'search', 'rankings'],
+    keywords: ['keywords', 'google', 'search', 'rankings', 'impressions', 'gbp'],
+  },
+  {
+    id: 'nav-ads',
+    label: 'Ads & Leads',
+    description: 'Campaign performance and lead pipeline',
+    icon: Megaphone,
+    action: '/ads',
+    type: 'navigate',
+    keywords: ['google ads', 'lsa', 'campaigns', 'leads', 'cost per lead', 'budget'],
+  },
+  {
+    id: 'nav-content',
+    label: 'Content & Social',
+    description: 'Content calendar, posts, and engagement',
+    icon: Pencil,
+    action: '/content',
+    type: 'navigate',
+    keywords: ['instagram', 'facebook', 'content', 'posts', 'calendar', 'social', 'schedule', 'engagement'],
   },
   {
     id: 'nav-social',
@@ -69,15 +88,6 @@ const COMMANDS: CommandItem[] = [
     action: '/social',
     type: 'navigate',
     keywords: ['instagram', 'facebook', 'content', 'posts'],
-  },
-  {
-    id: 'nav-ads',
-    label: 'Ads & Leads',
-    description: 'Campaign performance and lead pipeline',
-    icon: Megaphone,
-    action: '/ads',
-    type: 'navigate',
-    keywords: ['google ads', 'lsa', 'campaigns', 'leads'],
   },
   {
     id: 'nav-website',

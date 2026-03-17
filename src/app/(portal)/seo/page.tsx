@@ -1,21 +1,500 @@
-import { Search } from "lucide-react"
-import { EmptyState } from "@/components/shared/empty-state"
+'use client'
+
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import {
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ArrowUpRight,
+  Building2,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { PageTransition } from '@/components/motion/PageTransition'
+import { Skeleton } from '@/components/motion/Skeleton'
+import { stagger, slideUp } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils'
+
+// ===== Demo Data =====
+
+const impressionsData = [
+  { date: 'Mar 1', impressions: 1240, clicks: 87 },
+  { date: 'Mar 5', impressions: 1580, clicks: 112 },
+  { date: 'Mar 9', impressions: 1320, clicks: 94 },
+  { date: 'Mar 13', impressions: 1890, clicks: 138 },
+  { date: 'Mar 17', impressions: 2210, clicks: 167 },
+  { date: 'Mar 21', impressions: 1970, clicks: 143 },
+  { date: 'Mar 25', impressions: 2450, clicks: 189 },
+  { date: 'Mar 29', impressions: 2680, clicks: 214 },
+]
+
+const keywordData = [
+  { keyword: 'fence installation near me', position: 3, prev: 5, volume: 1200, clicks: 48 },
+  { keyword: 'vinyl fencing company franklin tn', position: 1, prev: 2, volume: 480, clicks: 67 },
+  { keyword: 'wood fence cost estimate', position: 7, prev: 7, volume: 2100, clicks: 12 },
+  { keyword: 'fencing contractors nashville', position: 5, prev: 8, volume: 720, clicks: 31 },
+  { keyword: 'chain link fence installation', position: 12, prev: 9, volume: 950, clicks: 8 },
+  { keyword: 'privacy fence panels', position: 4, prev: 4, volume: 1800, clicks: 22 },
+  { keyword: 'aluminum fence near me', position: 9, prev: 14, volume: 640, clicks: 15 },
+  { keyword: 'fence repair service', position: 6, prev: 6, volume: 530, clicks: 19 },
+]
+
+const topPages = [
+  { url: '/vinyl-fencing', title: 'Vinyl Fencing Services', clicks: 214, impressions: 1840, ctr: '11.6%', position: 2.1 },
+  { url: '/fence-installation', title: 'Professional Fence Installation', clicks: 167, impressions: 1420, ctr: '11.8%', position: 3.4 },
+  { url: '/wood-fencing', title: 'Wood Fence Contractors', clicks: 98, impressions: 1180, ctr: '8.3%', position: 5.2 },
+  { url: '/contact', title: 'Contact Us - Free Estimate', clicks: 73, impressions: 890, ctr: '8.2%', position: 6.1 },
+  { url: '/', title: 'Home | Gunns Fencing', clicks: 62, impressions: 1230, ctr: '5.0%', position: 7.8 },
+]
+
+const gbpItems = [
+  { label: 'Business Name & Category', complete: true },
+  { label: 'Phone & Address', complete: true },
+  { label: 'Business Hours', complete: true },
+  { label: 'Photos (15+ uploaded)', complete: true },
+  { label: 'Service Areas Added', complete: true },
+  { label: 'Services & Prices', complete: false },
+  { label: 'Questions & Answers', complete: false },
+  { label: '10+ Google Reviews', complete: true },
+]
+
+const DATE_RANGES = ['7d', '30d', '90d'] as const
+type DateRange = (typeof DATE_RANGES)[number]
+
+// ===== Sub-components =====
+
+function SampleBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+      Sample data
+    </span>
+  )
+}
+
+function TrendArrow({ current, prev }: { current: number; prev: number }) {
+  const diff = prev - current // lower position = better
+  if (diff > 0) return <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+  if (diff < 0) return <TrendingDown className="w-3.5 h-3.5 text-red-400" />
+  return <Minus className="w-3.5 h-3.5 text-muted-foreground" />
+}
+
+function TrendLabel({ current, prev }: { current: number; prev: number }) {
+  const diff = prev - current
+  if (diff > 0)
+    return <span className="text-emerald-500 text-xs font-medium">+{diff}</span>
+  if (diff < 0)
+    return <span className="text-red-400 text-xs font-medium">{diff}</span>
+  return <span className="text-muted-foreground text-xs">—</span>
+}
+
+function GBPRing({ score }: { score: number }) {
+  const radius = 44
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (score / 100) * circumference
+
+  return (
+    <div className="relative w-28 h-28 flex items-center justify-center">
+      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+        <circle
+          cx="50" cy="50" r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="8"
+          className="text-border"
+        />
+        <motion.circle
+          cx="50" cy="50" r={radius}
+          fill="none"
+          stroke="#48C78E"
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
+        />
+      </svg>
+      <div className="text-center">
+        <span className="text-2xl font-bold font-nunito text-foreground">{score}%</span>
+      </div>
+    </div>
+  )
+}
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-xl border border-border bg-popover px-3 py-2 shadow-xl text-sm">
+      <p className="text-muted-foreground text-xs mb-1">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} className="font-medium" style={{ color: p.color }}>
+          {p.name}: {p.value.toLocaleString()}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ===== Main page =====
 
 export default function SeoPage() {
-  return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-nunito font-bold text-foreground">SEO</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Monitor your search engine visibility and keyword rankings.
-        </p>
-      </div>
+  const [dateRange, setDateRange] = useState<DateRange>('30d')
+  const [loading] = useState(false)
 
-      <EmptyState
-        icon={Search}
-        title="SEO reports coming soon"
-        description="Your SEO dashboard is on the way. You'll soon be able to track keyword rankings, impressions, and your Google Search Console data."
-      />
-    </div>
+  const gbpComplete = gbpItems.filter((i) => i.complete).length
+  const gbpScore = Math.round((gbpComplete / gbpItems.length) * 100)
+
+  return (
+    <PageTransition>
+      <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+
+        {/* Header */}
+        <motion.div
+          variants={slideUp}
+          initial="hidden"
+          animate="visible"
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+        >
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-2xl font-nunito font-bold text-foreground">SEO & Rankings</h1>
+              <SampleBadge />
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Keyword positions, search impressions, and Google Business Profile health.
+            </p>
+          </div>
+
+          {/* Date range filter */}
+          <div className="flex gap-1 p-1 rounded-xl bg-card border border-border self-start sm:self-auto">
+            {DATE_RANGES.map((r) => (
+              <button
+                key={r}
+                onClick={() => setDateRange(r)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
+                  dateRange === r
+                    ? 'bg-strawberry text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-card-hover',
+                )}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Stat Summary Row */}
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+        >
+          {[
+            { label: 'Total Impressions', value: '14.8K', change: '+22%', positive: true },
+            { label: 'Total Clicks', value: '1,044', change: '+18%', positive: true },
+            { label: 'Avg. Position', value: '5.8', change: '-1.2', positive: true },
+            { label: 'Avg. CTR', value: '7.1%', change: '+0.8%', positive: true },
+          ].map((stat) => (
+            <motion.div key={stat.label} variants={slideUp}>
+              <Card className="bg-card border-border rounded-xl">
+                <CardContent className="p-5">
+                  {loading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-7 w-16" />
+                      <Skeleton className="h-3 w-12" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
+                      <p className="text-2xl font-nunito font-bold text-foreground">{stat.value}</p>
+                      <p className={cn('text-xs font-medium mt-1', stat.positive ? 'text-emerald-500' : 'text-red-400')}>
+                        {stat.change} vs prev period
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Impressions / Clicks Chart */}
+        <motion.div variants={slideUp} initial="hidden" animate="visible" transition={{ delay: 0.1 }}>
+          <Card className="bg-card border-border rounded-xl">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-strawberry" />
+                  <CardTitle className="text-sm font-nunito font-semibold">Impressions & Clicks</CardTitle>
+                </div>
+                <SampleBadge />
+              </div>
+            </CardHeader>
+            <CardContent className="pt-2">
+              {loading ? (
+                <Skeleton className="h-56 w-full rounded-lg" />
+              ) : (
+                <div className="dark:[filter:drop-shadow(0_0_8px_rgba(99,102,241,0.3))]">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={impressionsData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <defs>
+                        <linearGradient id="seo-imp-fill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#FBE98A" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#FBE98A" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="seo-click-fill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366F1" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={40}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area
+                        type="monotone"
+                        dataKey="impressions"
+                        name="Impressions"
+                        stroke="#FBE98A"
+                        fill="url(#seo-imp-fill)"
+                        strokeWidth={1.5}
+                        isAnimationActive
+                        animationDuration={800}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="clicks"
+                        name="Clicks"
+                        stroke="#6366F1"
+                        fill="url(#seo-click-fill)"
+                        strokeWidth={2}
+                        isAnimationActive
+                        animationDuration={800}
+                        animationBegin={150}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="flex items-center gap-4 mt-3 px-1">
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="w-3 h-0.5 bg-[#FBE98A] rounded-full" />
+                  Impressions
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="w-3 h-0.5 bg-[#6366F1] rounded-full" />
+                  Clicks
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Keywords Table + GBP Card */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+          {/* Keyword Table — 2/3 */}
+          <motion.div
+            variants={slideUp}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.15 }}
+            className="xl:col-span-2"
+          >
+            <Card className="bg-card border-border rounded-xl">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-strawberry" />
+                    <CardTitle className="text-sm font-nunito font-semibold">Keyword Rankings</CardTitle>
+                  </div>
+                  <SampleBadge />
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {loading ? (
+                  <div className="px-6 pb-4">
+                    {[...Array(6)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-4 py-3 border-b border-border last:border-0">
+                        <Skeleton className="h-3 w-40" />
+                        <Skeleton className="h-3 w-10 ml-auto" />
+                        <Skeleton className="h-3 w-8" />
+                        <Skeleton className="h-3 w-12" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {/* Table Header */}
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span>Keyword</span>
+                      <span className="text-right">Pos.</span>
+                      <span className="text-right">Trend</span>
+                      <span className="text-right">Volume</span>
+                      <span className="text-right">Clicks</span>
+                    </div>
+                    <motion.div variants={stagger} initial="hidden" animate="visible">
+                      {keywordData.map((kw) => (
+                        <motion.div
+                          key={kw.keyword}
+                          variants={slideUp}
+                          className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors group"
+                        >
+                          <span className="text-sm text-foreground font-medium truncate pr-2">{kw.keyword}</span>
+                          <span className={cn(
+                            'text-sm font-bold text-right',
+                            kw.position <= 3 ? 'text-emerald-500' :
+                            kw.position <= 7 ? 'text-foreground' : 'text-muted-foreground',
+                          )}>
+                            #{kw.position}
+                          </span>
+                          <span className="flex items-center justify-end gap-1">
+                            <TrendArrow current={kw.position} prev={kw.prev} />
+                            <TrendLabel current={kw.position} prev={kw.prev} />
+                          </span>
+                          <span className="text-sm text-muted-foreground text-right">{kw.volume.toLocaleString()}</span>
+                          <span className="text-sm text-foreground text-right font-medium">{kw.clicks}</span>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* GBP Health Card — 1/3 */}
+          <motion.div
+            variants={slideUp}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.2 }}
+          >
+            <Card className="bg-card border-border rounded-xl h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-strawberry" />
+                    <CardTitle className="text-sm font-nunito font-semibold">Google Business Profile</CardTitle>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center gap-4">
+                <GBPRing score={gbpScore} />
+                <p className="text-sm text-muted-foreground text-center">
+                  Profile {gbpScore >= 80 ? 'is in great shape' : 'needs some attention'}
+                </p>
+                <div className="w-full space-y-2">
+                  {gbpItems.map((item) => (
+                    <div key={item.label} className="flex items-center gap-2">
+                      {item.complete ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      )}
+                      <span className={cn(
+                        'text-xs',
+                        item.complete ? 'text-foreground' : 'text-muted-foreground',
+                      )}>
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+
+        {/* Top Performing Pages Table */}
+        <motion.div
+          variants={slideUp}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.2 }}
+        >
+          <Card className="bg-card border-border rounded-xl">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ArrowUpRight className="w-4 h-4 text-strawberry" />
+                  <CardTitle className="text-sm font-nunito font-semibold">Top Performing Pages</CardTitle>
+                </div>
+                <SampleBadge />
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="px-6 pb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 py-3 border-b border-border last:border-0">
+                      <Skeleton className="h-3 w-48" />
+                      <Skeleton className="h-3 w-16 ml-auto" />
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-3 w-10" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <span>Page</span>
+                    <span className="text-right">Clicks</span>
+                    <span className="text-right">Impressions</span>
+                    <span className="text-right">CTR</span>
+                    <span className="text-right">Avg Pos.</span>
+                  </div>
+                  <motion.div variants={stagger} initial="hidden" animate="visible">
+                    {topPages.map((page) => (
+                      <motion.div
+                        key={page.url}
+                        variants={slideUp}
+                        className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{page.title}</p>
+                          <p className="text-xs text-muted-foreground">{page.url}</p>
+                        </div>
+                        <span className="text-sm font-medium text-foreground text-right self-center">{page.clicks}</span>
+                        <span className="text-sm text-muted-foreground text-right self-center">{page.impressions.toLocaleString()}</span>
+                        <Badge variant="secondary" className="self-center ml-auto text-xs">{page.ctr}</Badge>
+                        <span className="text-sm text-muted-foreground text-right self-center">{page.position}</span>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+      </div>
+    </PageTransition>
   )
 }
