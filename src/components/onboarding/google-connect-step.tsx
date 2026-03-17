@@ -100,7 +100,7 @@ export function GoogleConnectStep({ googleConnection, onBack }: GoogleConnectSte
           <Button
             type="button"
             onClick={onContinue}
-            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl"
+            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl min-h-[44px]"
           >
             Continue
           </Button>
@@ -108,7 +108,7 @@ export function GoogleConnectStep({ googleConnection, onBack }: GoogleConnectSte
           <Button
             type="button"
             onClick={onConnect}
-            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl flex items-center justify-center gap-2"
+            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl flex items-center justify-center gap-2 min-h-[44px]"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -125,7 +125,7 @@ export function GoogleConnectStep({ googleConnection, onBack }: GoogleConnectSte
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="text-muted-foreground hover:text-foreground rounded-xl"
+            className="text-muted-foreground hover:text-foreground rounded-xl min-h-[44px]"
           >
             Back
           </Button>
@@ -134,7 +134,7 @@ export function GoogleConnectStep({ googleConnection, onBack }: GoogleConnectSte
               type="button"
               onClick={onSkip}
               disabled={isSkipping}
-              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-50"
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-50 min-h-[44px] px-2"
             >
               {isSkipping ? 'Skipping...' : 'Skip for now'}
             </button>

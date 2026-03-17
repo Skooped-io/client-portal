@@ -92,7 +92,7 @@ export function MetaConnectStep({ metaConnection, onBack }: MetaConnectStepProps
           <Button
             type="button"
             onClick={onContinue}
-            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl"
+            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl min-h-[44px]"
           >
             Continue
           </Button>
@@ -100,7 +100,7 @@ export function MetaConnectStep({ metaConnection, onBack }: MetaConnectStepProps
           <Button
             type="button"
             onClick={onConnect}
-            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl flex items-center justify-center gap-2"
+            className="w-full bg-strawberry hover:bg-strawberry/90 text-white rounded-xl flex items-center justify-center gap-2 min-h-[44px]"
           >
             <Facebook className="w-4 h-4" />
             Connect Instagram & Facebook
@@ -112,7 +112,7 @@ export function MetaConnectStep({ metaConnection, onBack }: MetaConnectStepProps
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="text-muted-foreground hover:text-foreground rounded-xl"
+            className="text-muted-foreground hover:text-foreground rounded-xl min-h-[44px]"
           >
             Back
           </Button>
@@ -121,7 +121,7 @@ export function MetaConnectStep({ metaConnection, onBack }: MetaConnectStepProps
               type="button"
               onClick={onSkip}
               disabled={isSkipping}
-              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-50"
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors disabled:opacity-50 min-h-[44px] px-2"
             >
               {isSkipping ? 'Skipping...' : 'Skip for now'}
             </button>

@@ -176,7 +176,7 @@ export function BusinessProfileForm({ profile }: BusinessProfileFormProps) {
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-6"
+          className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-6 min-h-[44px]"
         >
           {isSubmitting ? "Saving..." : "Save Changes"}
         </Button>

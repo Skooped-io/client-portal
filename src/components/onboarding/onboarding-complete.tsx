@@ -57,7 +57,7 @@ export function OnboardingComplete({ googleConnection, metaConnection }: Onboard
       <Button
         onClick={onGoToDashboard}
         disabled={isFinishing}
-        className="bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 flex items-center gap-2"
+        className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 flex items-center gap-2 min-h-[44px]"
       >
         {isFinishing ? 'Loading...' : 'Go to Dashboard'}
         {!isFinishing && <ArrowRight className="w-4 h-4" />}

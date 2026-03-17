@@ -210,7 +210,7 @@ function AccountTab() {
                 <Button
                   type="submit"
                   disabled={isSaving}
-                  className="bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-6 gap-2"
+                  className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-6 gap-2 min-h-[44px]"
                 >
                   {isSaving ? (
                     <>
@@ -249,7 +249,8 @@ function AccountTab() {
                   <button
                     type="button"
                     onClick={() => setShowCurrentPw((p) => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showCurrentPw ? 'Hide password' : 'Show password'}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                   >
                     {showCurrentPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -266,14 +267,15 @@ function AccountTab() {
                   <button
                     type="button"
                     onClick={() => setShowNewPw((p) => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showNewPw ? 'Hide password' : 'Show password'}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                   >
                     {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button type="submit" variant="outline" className="rounded-xl border-border px-6">
+                <Button type="submit" variant="outline" className="w-full sm:w-auto rounded-xl border-border px-6 min-h-[44px]">
                   Update Password
                 </Button>
               </div>
@@ -609,7 +611,7 @@ function NotificationsTab() {
                   key={opt}
                   onClick={() => setFrequency(opt)}
                   className={cn(
-                    'py-2 rounded-xl text-sm font-medium capitalize border transition-colors',
+                    'py-2 rounded-xl text-sm font-medium capitalize border transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                     frequency === opt
                       ? 'bg-strawberry text-white border-strawberry'
                       : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
@@ -817,7 +819,8 @@ function TeamTab() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-strawberry rounded-lg"
+                        aria-label={`Remove ${member.name}`}
+                        className="min-h-[44px] min-w-[44px] p-0 text-muted-foreground hover:text-strawberry rounded-lg"
                         onClick={() => handleRemove(member.id)}
                       >
                         <X className="w-3.5 h-3.5" />
@@ -923,13 +926,13 @@ export default function SettingsPage() {
 
   return (
     <PageTransition>
-      <div className="p-6 md:p-8 max-w-3xl mx-auto">
+      <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-3xl mx-auto">
         {/* Page Header */}
         <div className="mb-8">
           <motion.h1
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-2xl font-nunito font-bold text-foreground"
+            className="text-xl sm:text-2xl font-nunito font-bold text-foreground"
           >
             Settings
           </motion.h1>
@@ -959,7 +962,7 @@ export default function SettingsPage() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    'relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors',
+                    'relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                     isActive
                       ? 'text-foreground'
                       : 'text-muted-foreground hover:text-foreground',

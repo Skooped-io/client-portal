@@ -140,7 +140,7 @@ function ReportCard({ report, isLatest, onView }: ReportCardProps) {
     <motion.div
       variants={slideUp}
       whileHover={{ y: -3, transition: { duration: 0.15 } }}
-      className="group rounded-2xl border border-border bg-card p-6 hover:border-strawberry/30 hover:shadow-lg hover:shadow-strawberry/5 transition-shadow cursor-pointer"
+      className="group rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 hover:border-strawberry/30 hover:shadow-lg hover:shadow-strawberry/5 transition-shadow cursor-pointer"
       onClick={() => onView(report)}
     >
       {/* Header */}
@@ -249,7 +249,7 @@ function ReportModal({ report, onClose }: ReportModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-start justify-between p-6 border-b border-border">
+        <div className="flex items-start justify-between px-4 py-4 md:px-6 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-strawberry/10 flex items-center justify-center">
               <FileText className="w-5 h-5 text-strawberry" />
@@ -261,16 +261,17 @@ function ReportModal({ report, onClose }: ReportModalProps) {
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+            aria-label="Close report"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Metrics */}
-        <div className="p-6 border-b border-border">
+        <div className="px-4 py-4 md:px-6 border-b border-border">
           <h3 className="text-sm font-medium text-foreground mb-4">Key Metrics vs. Previous Month</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {report.metrics.map((metric) => {
               const trend = getTrend(metric.value, metric.prevValue, metric.label === 'Google Ranking')
               const pct = getChangePercent(metric.value, metric.prevValue)
@@ -318,7 +319,7 @@ function ReportModal({ report, onClose }: ReportModalProps) {
         </div>
 
         {/* Highlights */}
-        <div className="p-6 border-b border-border">
+        <div className="px-4 py-4 md:px-6 border-b border-border">
           <h3 className="text-sm font-medium text-foreground mb-3">Highlights</h3>
           <ul className="space-y-2">
             {report.highlights.map((h, i) => (
@@ -331,7 +332,7 @@ function ReportModal({ report, onClose }: ReportModalProps) {
         </div>
 
         {/* Actions */}
-        <div className="p-6 flex items-center gap-3">
+        <div className="px-4 py-4 md:px-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button className="flex-1 bg-strawberry hover:bg-strawberry/90 text-white rounded-xl gap-2">
             <Download className="w-4 h-4" />
             Download PDF
@@ -374,7 +375,7 @@ function ReportsSkeletonLoading() {
 
 function MoMComparison({ current, previous }: { current: MonthReport; previous: MonthReport }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-6 mb-8">
+    <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6 md:mb-8">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="font-nunito font-bold text-foreground">Month-over-Month Comparison</h2>
@@ -439,7 +440,7 @@ function MoMComparison({ current, previous }: { current: MonthReport; previous: 
 
 function ReportsArchive({ reports, onView }: { reports: MonthReport[]; onView: (r: MonthReport) => void }) {
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+    <div className="rounded-lg md:rounded-2xl border border-border bg-card overflow-hidden">
       <div className="px-6 py-4 border-b border-border flex items-center justify-between">
         <h2 className="font-nunito font-bold text-foreground">Reports Archive</h2>
         <Badge variant="outline" className="text-xs border-border text-muted-foreground">
@@ -451,7 +452,7 @@ function ReportsArchive({ reports, onView }: { reports: MonthReport[]; onView: (
         {reports.map((report) => (
           <div
             key={report.id}
-            className="flex items-center gap-4 px-6 py-4 hover:bg-card-hover transition-colors"
+            className="flex items-center gap-3 px-4 md:px-6 py-3 md:py-4 hover:bg-card-hover transition-colors"
           >
             <div className="w-10 h-10 rounded-xl bg-strawberry/10 flex items-center justify-center shrink-0">
               <FileText className="w-5 h-5 text-strawberry" />
@@ -467,7 +468,7 @@ function ReportsArchive({ reports, onView }: { reports: MonthReport[]; onView: (
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground hover:text-foreground rounded-xl gap-1.5"
+                className="min-h-[44px] text-muted-foreground hover:text-foreground rounded-xl gap-1.5"
                 onClick={() => onView(report)}
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -476,7 +477,7 @@ function ReportsArchive({ reports, onView }: { reports: MonthReport[]; onView: (
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-xl border-border gap-1.5"
+                className="min-h-[44px] rounded-xl border-border gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
                 PDF
@@ -498,7 +499,7 @@ export default function ReportsPage() {
   if (isLoading) {
     return (
       <PageTransition>
-        <div className="p-6 md:p-8">
+        <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8">
           <Skeleton className="h-8 w-32 mb-2" />
           <Skeleton className="h-4 w-64 mb-8" />
           <ReportsSkeletonLoading />
@@ -509,14 +510,14 @@ export default function ReportsPage() {
 
   return (
     <PageTransition>
-      <div className="p-6 md:p-8 max-w-6xl mx-auto">
+      <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-6xl mx-auto">
         {/* Page Header */}
-        <div className="flex items-start justify-between mb-8">
+        <div className="flex items-start justify-between gap-3 mb-6 md:mb-8">
           <div>
             <motion.h1
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-2xl font-nunito font-bold text-foreground"
+              className="text-xl sm:text-2xl font-nunito font-bold text-foreground"
             >
               Reports
             </motion.h1>

@@ -126,7 +126,7 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8"
+          className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 min-h-[44px]"
         >
           {isSubmitting ? 'Saving...' : 'Continue'}
         </Button>

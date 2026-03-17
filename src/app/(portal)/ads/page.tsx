@@ -232,13 +232,13 @@ export default function AdsPage() {
 
   return (
     <PageTransition>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-7xl mx-auto space-y-4 md:space-y-6">
 
         {/* Header */}
         <motion.div variants={slideUp} initial="hidden" animate="visible" className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-nunito font-bold text-foreground">Ads & Leads</h1>
+              <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Ads & Leads</h1>
               <SampleBadge />
             </div>
             <p className="text-muted-foreground text-sm">
@@ -258,8 +258,8 @@ export default function AdsPage() {
             const Icon = stat.icon
             return (
               <motion.div key={stat.label} variants={slideUp}>
-                <Card className="bg-card border-border rounded-xl">
-                  <CardContent className="p-5">
+                <Card className="bg-card border-border rounded-lg md:rounded-xl">
+                  <CardContent className="p-4 md:p-5">
                     {loading ? (
                       <div className="space-y-2">
                         <Skeleton className="h-3 w-24" />
@@ -294,8 +294,8 @@ export default function AdsPage() {
               const sc = statusConfig[campaign.status]
               return (
                 <motion.div key={campaign.id} variants={slideUp}>
-                  <Card className="bg-card border-border rounded-xl hover:bg-card-hover transition-colors">
-                    <CardContent className="p-5 space-y-4">
+                  <Card className="bg-card border-border rounded-lg md:rounded-xl hover:bg-card-hover transition-colors">
+                    <CardContent className="p-4 md:p-5 space-y-4">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-foreground truncate">{campaign.name}</p>

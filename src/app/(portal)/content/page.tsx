@@ -350,10 +350,10 @@ function ContentCalendarGrid({ onSelectPost }: { onSelectPost: (post: ScheduledP
           {MONTH_NAMES[currentMonth]} {currentYear}
         </p>
         <div className="flex gap-1">
-          <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-card-hover transition-colors text-muted-foreground hover:text-foreground">
+          <button onClick={prevMonth} aria-label="Previous month" className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-card-hover transition-colors text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-card-hover transition-colors text-muted-foreground hover:text-foreground">
+          <button onClick={nextMonth} aria-label="Next month" className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-card-hover transition-colors text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -435,13 +435,13 @@ export default function ContentPage() {
 
   return (
     <PageTransition>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-7xl mx-auto space-y-4 md:space-y-6">
 
         {/* Header */}
         <motion.div variants={slideUp} initial="hidden" animate="visible" className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-nunito font-bold text-foreground">Content & Social</h1>
+              <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Content & Social</h1>
               <SampleBadge />
             </div>
             <p className="text-muted-foreground text-sm">
@@ -451,7 +451,7 @@ export default function ContentPage() {
         </motion.div>
 
         {/* Engagement Stats */}
-        <motion.div variants={stagger} initial="hidden" animate="visible" className="grid grid-cols-3 gap-4">
+        <motion.div variants={stagger} initial="hidden" animate="visible" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: 'Total Likes', value: totalLikes, icon: Heart, color: 'text-red-400', bg: 'bg-red-400/10' },
             { label: 'Total Comments', value: totalComments, icon: MessageCircle, color: 'text-blue-400', bg: 'bg-blue-400/10' },
@@ -460,8 +460,8 @@ export default function ContentPage() {
             const Icon = stat.icon
             return (
               <motion.div key={stat.label} variants={slideUp}>
-                <Card className="bg-card border-border rounded-xl">
-                  <CardContent className="p-5">
+                <Card className="bg-card border-border rounded-lg md:rounded-xl">
+                  <CardContent className="p-4 md:p-5">
                     {loading ? (
                       <div className="space-y-2">
                         <Skeleton className="h-3 w-20" />
@@ -519,7 +519,7 @@ export default function ContentPage() {
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-sm font-nunito font-semibold">Post Preview</CardTitle>
-                        <button onClick={() => setSelectedPost(null)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+                        <button onClick={() => setSelectedPost(null)} className="text-xs text-muted-foreground hover:text-foreground min-h-[44px] px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded">Close</button>
                       </div>
                     </CardHeader>
                     <CardContent>

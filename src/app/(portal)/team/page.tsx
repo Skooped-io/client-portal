@@ -402,7 +402,7 @@ function AgentCard({ agent, onClick, index: _index }: AgentCardProps) {
         }}
       />
 
-      <div className="p-5 relative z-10">
+      <div className="p-4 md:p-5 relative z-10">
         {/* Header: avatar + status */}
         <div className="flex items-start justify-between mb-4">
           <div className="relative">
@@ -526,7 +526,8 @@ function AgentModal({ agent, onClose }: AgentModalProps) {
             {/* Close button */}
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 z-10 p-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close"
+              className="absolute top-3 right-3 z-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="w-4 h-4" />
             </button>
@@ -551,7 +552,7 @@ function AgentModal({ agent, onClose }: AgentModalProps) {
             </div>
 
             {/* Content */}
-            <div className="px-6 pb-8">
+            <div className="px-4 pb-6 md:px-6 md:pb-8">
               {/* Avatar + name (overlaps hero) */}
               <div className="flex items-end gap-4 -mt-10 mb-5">
                 <div
@@ -756,7 +757,7 @@ export default function TeamPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.5 }}
-            className="font-nunito font-bold text-3xl md:text-4xl text-foreground mb-2"
+            className="font-nunito font-bold text-2xl md:text-4xl text-foreground mb-2"
           >
             Your Team
           </motion.h1>
@@ -822,7 +823,7 @@ export default function TeamPage() {
           className="mb-12"
         >
           {/* Timeline header */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
             <div>
               <h2 className="font-nunito font-bold text-xl text-foreground">Team Activity</h2>
               <p className="text-sm text-muted-foreground mt-0.5">Everything your team has done for your business recently</p>

@@ -169,19 +169,19 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
         )}
       </div>
 
-      <div className="flex justify-between pt-2">
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2">
         <Button
           type="button"
           variant="ghost"
           onClick={onBack}
-          className="text-muted-foreground hover:text-foreground rounded-xl"
+          className="text-muted-foreground hover:text-foreground rounded-xl min-h-[44px]"
         >
           Back
         </Button>
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8"
+          className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 min-h-[44px]"
         >
           {isSubmitting ? 'Saving...' : 'Continue'}
         </Button>

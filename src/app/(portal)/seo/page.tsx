@@ -159,7 +159,7 @@ export default function SeoPage() {
 
   return (
     <PageTransition>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-7xl mx-auto space-y-4 md:space-y-6">
 
         {/* Header */}
         <motion.div
@@ -170,7 +170,7 @@ export default function SeoPage() {
         >
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-nunito font-bold text-foreground">SEO & Rankings</h1>
+              <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">SEO & Rankings</h1>
               <SampleBadge />
             </div>
             <p className="text-muted-foreground text-sm">
@@ -185,7 +185,7 @@ export default function SeoPage() {
                 key={r}
                 onClick={() => setDateRange(r)}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 min-h-[44px] min-w-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                   dateRange === r
                     ? 'bg-strawberry text-white shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-card-hover',
@@ -211,8 +211,8 @@ export default function SeoPage() {
             { label: 'Avg. CTR', value: '7.1%', change: '+0.8%', positive: true },
           ].map((stat) => (
             <motion.div key={stat.label} variants={slideUp}>
-              <Card className="bg-card border-border rounded-xl">
-                <CardContent className="p-5">
+              <Card className="bg-card border-border rounded-lg md:rounded-xl">
+                <CardContent className="p-4 md:p-5">
                   {loading ? (
                     <div className="space-y-2">
                       <Skeleton className="h-3 w-24" />
@@ -350,9 +350,9 @@ export default function SeoPage() {
                     ))}
                   </div>
                 ) : (
-                  <>
+                  <div className="overflow-x-auto">
                     {/* Table Header */}
-                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[480px]">
                       <span>Keyword</span>
                       <span className="text-right">Pos.</span>
                       <span className="text-right">Trend</span>
@@ -364,7 +364,7 @@ export default function SeoPage() {
                         <motion.div
                           key={kw.keyword}
                           variants={slideUp}
-                          className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors group"
+                          className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors group min-w-[480px]"
                         >
                           <span className="text-sm text-foreground font-medium truncate pr-2">{kw.keyword}</span>
                           <span className={cn(
@@ -383,7 +383,7 @@ export default function SeoPage() {
                         </motion.div>
                       ))}
                     </motion.div>
-                  </>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -462,8 +462,8 @@ export default function SeoPage() {
                   ))}
                 </div>
               ) : (
-                <>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                <div className="overflow-x-auto">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[480px]">
                     <span>Page</span>
                     <span className="text-right">Clicks</span>
                     <span className="text-right">Impressions</span>
@@ -475,7 +475,7 @@ export default function SeoPage() {
                       <motion.div
                         key={page.url}
                         variants={slideUp}
-                        className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors"
+                        className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors min-w-[480px]"
                       >
                         <div>
                           <p className="text-sm font-medium text-foreground">{page.title}</p>
@@ -488,7 +488,7 @@ export default function SeoPage() {
                       </motion.div>
                     ))}
                   </motion.div>
-                </>
+                </div>
               )}
             </CardContent>
           </Card>

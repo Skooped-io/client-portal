@@ -8,9 +8,9 @@ import { EmptyState } from "@/components/shared/empty-state"
 
 export default function WebsitePage() {
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-nunito font-bold text-foreground">Website</h1>
+    <div className="px-4 py-6 md:px-6 md:py-8 lg:px-8 max-w-7xl mx-auto space-y-4 md:space-y-6">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Website</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Monitor your website health, speed, and Core Web Vitals.
         </p>
