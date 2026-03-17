@@ -94,7 +94,7 @@ export const ops = {
 // → skooped-clients dataset
 // ============================================
 
-export interface ClientMetric {
+export interface ClientMetric extends Record<string, unknown> {
   timestamp: string
   client_id: string
   client_name: string
@@ -144,7 +144,7 @@ export const clients = {
 // → skooped-portal dataset
 // ============================================
 
-export interface PortalEvent {
+export interface PortalEvent extends Record<string, unknown> {
   timestamp: string
   level: LogLevel
   action: string
