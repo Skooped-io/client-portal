@@ -76,7 +76,7 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
 
   try {
     // ── 1. Resolve account name ─────────────────────────────────────────────
-    let accountName = meta?.gbp_account_name
+    let accountName: string | undefined = meta?.gbp_account_name
     if (!accountName) {
       const res = await gbpFetch<{ accounts?: Array<{ name: string }> }>(
         'https://mybusinessaccountmanagement.googleapis.com/v1/accounts',
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
     }
 
     // ── 2. Resolve location name ────────────────────────────────────────────
-    let locationName = meta?.gbp_location_name
+    let locationName: string | undefined = meta?.gbp_location_name
     if (!locationName) {
       const readMask = 'name,title,phoneNumbers,websiteUri'
       const res = await gbpFetch<{
