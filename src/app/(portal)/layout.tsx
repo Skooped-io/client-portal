@@ -1,5 +1,15 @@
 import 'driver.js/dist/driver.css'
+import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+
+export const metadata: Metadata = {
+  title: {
+    default: 'Dashboard',
+    template: '%s | Skooped',
+  },
+  description: 'Your Skooped AI-powered marketing performance dashboard.',
+  robots: { index: false, follow: false },
+}
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'

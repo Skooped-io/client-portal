@@ -1,4 +1,9 @@
+import type { Metadata } from 'next'
 import { Instagram } from "lucide-react"
+
+export const metadata: Metadata = {
+  title: 'Social',
+}
 import { EmptyState } from "@/components/shared/empty-state"
 
 export default function SocialPage() {

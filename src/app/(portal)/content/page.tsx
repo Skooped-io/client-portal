@@ -346,9 +346,9 @@ function ContentCalendarGrid({ onSelectPost }: { onSelectPost: (post: ScheduledP
     <div className="space-y-3">
       {/* Nav */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-nunito font-semibold text-foreground">
+        <p className="text-sm font-nunito font-semibold text-foreground">
           {MONTH_NAMES[currentMonth]} {currentYear}
-        </h3>
+        </p>
         <div className="flex gap-1">
           <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-card-hover transition-colors text-muted-foreground hover:text-foreground">
             <ChevronLeft className="w-4 h-4" />

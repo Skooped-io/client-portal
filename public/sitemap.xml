@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Skooped Client Portal — sitemap.xml
+  This portal is fully auth-gated. The only public-facing page is /login.
+  All other routes are excluded via robots.txt.
+  For the full marketing sitemap see: https://skooped.io/sitemap.xml
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://portal.skooped.io/login</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>

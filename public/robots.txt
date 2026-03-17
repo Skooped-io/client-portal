@@ -1,0 +1,23 @@
+# robots.txt — Skooped Client Portal
+# The portal is an authenticated app; all routes are disallowed for crawlers.
+# The public marketing site (skooped.io) handles all indexable content.
+
+User-agent: *
+Disallow: /
+
+# Explicitly disallow sensitive sections (belt-and-suspenders)
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /analytics
+Disallow: /ads
+Disallow: /seo
+Disallow: /social
+Disallow: /content
+Disallow: /reports
+Disallow: /messages
+Disallow: /team
+Disallow: /website
+Disallow: /onboarding
+
+# Allow bots to reach the sitemap (even though it only lists the login page)
+Allow: /sitemap.xml

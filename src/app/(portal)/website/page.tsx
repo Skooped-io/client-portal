@@ -1,4 +1,9 @@
+import type { Metadata } from 'next'
 import { Globe } from "lucide-react"
+
+export const metadata: Metadata = {
+  title: 'Website',
+}
 import { EmptyState } from "@/components/shared/empty-state"
 
 export default function WebsitePage() {
