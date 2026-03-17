@@ -4,31 +4,65 @@
 
 @layer base {
   :root {
-    --background: 30 50% 96%;
-    --foreground: 350 40% 15%;
-    --card: 35 60% 92%;
+    /* ===== ICE CREAM PALETTE — LIGHT MODE ===== */
+
+    /* Surfaces */
+    --background: 30 50% 96%;          /* #F7F2ED — warm cream base */
+    --background-light: 30 30% 98%;    /* #FDFAF7 — lighter variant */
+    --foreground: 350 40% 15%;         /* #361C24 — primary text */
+
+    /* Cards */
+    --card: 35 60% 92%;                /* #F2E8D6 */
     --card-foreground: 350 40% 15%;
+    --card-hover: 35 60% 88%;          /* #EBDCC5 */
+
+    /* Popovers */
     --popover: 35 60% 92%;
     --popover-foreground: 350 40% 15%;
-    --primary: 340 75% 55%;
+
+    /* Brand Colors — Primary (Strawberry Pink) */
+    --primary: 340 75% 55%;            /* #D94A7A */
     --primary-foreground: 0 0% 100%;
-    --secondary: 42 80% 75%;
+
+    /* Brand Colors — Secondary (Vanilla Cream) */
+    --secondary: 42 80% 75%;           /* #E8C87A */
     --secondary-foreground: 350 40% 15%;
-    --muted: 35 30% 85%;
-    --muted-foreground: 20 20% 40%;
-    --accent: 35 70% 55%;
+
+    /* Muted */
+    --muted: 35 30% 85%;               /* #E0D4C4 */
+    --muted-foreground: 20 20% 40%;    /* #7A6458 */
+    --muted-light: 20 15% 55%;         /* #9A8A7E */
+
+    /* Accent (Waffle Gold) */
+    --accent: 35 70% 55%;              /* #C99035 */
     --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
     --destructive: 340 75% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 35 30% 85%;
+
+    /* Borders & Inputs */
+    --border: 35 30% 85%;              /* #E0D4C4 */
     --input: 35 30% 85%;
     --ring: 340 75% 55%;
+
+    /* Radius */
     --radius: 0.75rem;
-    --chart-1: 340 75% 55%;
-    --chart-2: 42 80% 75%;
-    --chart-3: 35 70% 55%;
-    --chart-4: 20 55% 28%;
-    --chart-5: 350 70% 25%;
+
+    /* Charts — ice cream palette */
+    --chart-1: 340 75% 55%;            /* Strawberry Pink */
+    --chart-2: 42 80% 75%;             /* Vanilla Cream */
+    --chart-3: 35 70% 55%;             /* Waffle Gold */
+    --chart-4: 20 55% 28%;             /* Chocolate Brown */
+    --chart-5: 350 70% 25%;            /* Maroon */
+
+    /* Semantic */
+    --success: 123 47% 48%;            /* #4CAF50 */
+    --warning: 35 70% 55%;             /* #C99035 — Waffle Gold */
+    --error: 340 75% 55%;              /* #D94A7A — Strawberry Pink */
+    --info: 220 78% 65%;               /* #5B8DEF */
+
+    /* Sidebar */
     --sidebar-background: 30 50% 96%;
     --sidebar-foreground: 350 40% 15%;
     --sidebar-primary: 340 75% 55%;
@@ -37,6 +71,78 @@
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 35 30% 85%;
     --sidebar-ring: 340 75% 55%;
+
+    /* Animation timing */
+    --transition-fast: 150ms ease;
+    --transition-base: 300ms ease-in-out;
+    --transition-slow: 500ms ease-in-out;
+  }
+
+  .dark {
+    /* ===== ICE CREAM PALETTE — DARK MODE ===== */
+
+    /* Surfaces */
+    --background: 340 25% 9%;          /* #1A1216 — warm dark base */
+    --background-light: 340 20% 11%;   /* #211A1E */
+    --foreground: 30 50% 96%;          /* #F7F2ED — cream becomes text */
+
+    /* Cards */
+    --card: 340 22% 13%;               /* #2A1E22 */
+    --card-foreground: 30 50% 96%;
+    --card-hover: 340 20% 16%;         /* #352830 */
+
+    /* Popovers */
+    --popover: 340 22% 13%;
+    --popover-foreground: 30 50% 96%;
+
+    /* Brand Colors — Primary unchanged (works on dark) */
+    --primary: 340 75% 55%;            /* #D94A7A */
+    --primary-foreground: 0 0% 100%;
+
+    /* Brand Colors — Secondary */
+    --secondary: 42 80% 75%;           /* #E8C87A */
+    --secondary-foreground: 350 40% 15%;
+
+    /* Muted */
+    --muted: 340 18% 19%;              /* #3D2E35 */
+    --muted-foreground: 20 15% 55%;    /* #9A8A7E */
+    --muted-light: 20 15% 45%;
+
+    /* Accent (Waffle Gold) — unchanged */
+    --accent: 35 70% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
+    --destructive: 340 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders & Inputs */
+    --border: 340 18% 22%;             /* #3D2E35 */
+    --input: 340 18% 22%;
+    --ring: 340 75% 55%;
+
+    /* Charts */
+    --chart-1: 340 75% 55%;
+    --chart-2: 42 80% 75%;
+    --chart-3: 35 70% 55%;
+    --chart-4: 20 55% 45%;
+    --chart-5: 350 70% 40%;
+
+    /* Semantic */
+    --success: 123 47% 48%;
+    --warning: 35 70% 55%;
+    --error: 340 75% 55%;
+    --info: 220 78% 65%;
+
+    /* Sidebar — slightly different from page bg for depth */
+    --sidebar-background: 340 22% 10%;
+    --sidebar-foreground: 30 50% 96%;
+    --sidebar-primary: 340 75% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 340 75% 55%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 340 18% 18%;
+    --sidebar-ring: 340 75% 55%;
   }
 }
 
@@ -44,27 +150,104 @@
   * {
     @apply border-border;
   }
+
+  html {
+    /* Smooth dark mode color transitions */
+    color-scheme: light dark;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-dm-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-nunito), system-ui, sans-serif;
+  }
+
+  /* Smooth theme transitions — only after first render (next-themes adds .transitioning class) */
+  .theme-transitioning *,
+  .theme-transitioning *::before,
+  .theme-transitioning *::after {
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease,
+      fill 200ms ease,
+      stroke 200ms ease !important;
   }
 }
 
 @layer utilities {
+  /* ===== Brand color utilities ===== */
   .text-strawberry { color: #D94A7A; }
   .text-vanilla { color: #E8C87A; }
   .text-gold { color: #C99035; }
   .text-chocolate { color: #6E3D20; }
   .text-maroon { color: #6D1326; }
+  .text-muted-light { color: #9A8A7E; }
+
   .bg-strawberry { background-color: #D94A7A; }
   .bg-vanilla { background-color: #E8C87A; }
   .bg-gold { background-color: #C99035; }
   .bg-chocolate { background-color: #6E3D20; }
   .bg-maroon { background-color: #6D1326; }
+
+  .bg-strawberry\/10 { background-color: rgb(217 74 122 / 0.1); }
+  .bg-strawberry\/15 { background-color: rgb(217 74 122 / 0.15); }
+  .bg-strawberry\/20 { background-color: rgb(217 74 122 / 0.2); }
+  .bg-gold\/10 { background-color: rgb(201 144 53 / 0.1); }
+  .bg-vanilla\/20 { background-color: rgb(232 200 122 / 0.2); }
+
   .border-strawberry { border-color: #D94A7A; }
   .border-vanilla { border-color: #E8C87A; }
   .border-gold { border-color: #C99035; }
+
+  /* ===== Shimmer animation for skeleton loading ===== */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--card)) 0%,
+      hsl(var(--card-hover)) 50%,
+      hsl(var(--card)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  /* ===== Font utilities ===== */
+  .font-nunito { font-family: var(--font-nunito), system-ui, sans-serif; }
+  .font-dm-sans { font-family: var(--font-dm-sans), system-ui, sans-serif; }
+
+  /* ===== Portal layout utilities ===== */
+  .portal-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
 }
