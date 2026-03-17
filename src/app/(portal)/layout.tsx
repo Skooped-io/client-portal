@@ -1,4 +1,3 @@
-import 'driver.js/dist/driver.css'
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 
@@ -12,10 +11,10 @@ export const metadata: Metadata = {
 }
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/Sidebar'
-import { TopBar } from '@/components/layout/TopBar'
 import { PageTransition } from '@/components/motion/PageTransition'
 import { CommandPalette } from '@/components/layout/CommandPalette'
 import { PortalShell } from '@/components/layout/PortalShell'
+import { DemoTourProvider } from '@/components/onboarding/DemoTourProvider'
 
 interface PortalLayoutProps {
   children: React.ReactNode
@@ -50,27 +49,30 @@ export default async function PortalLayout({ children }: PortalLayoutProps) {
 
   const fullName = profile?.full_name ?? user.email ?? 'User'
   const businessName: string | undefined = undefined // TODO: add business_name to profiles migration
+  const tourCompleted = user.user_metadata?.tour_completed === true
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Fixed sidebar */}
-      <Sidebar userEmail={user.email ?? ''} userName={fullName} />
+    <DemoTourProvider tourCompleted={tourCompleted}>
+      <div className="flex h-screen overflow-hidden bg-background">
+        {/* Fixed sidebar */}
+        <Sidebar userEmail={user.email ?? ''} userName={fullName} />
 
-      {/* Main content area */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Top bar — client shell handles command palette state */}
-        <PortalShell
-          clientName={fullName}
-          businessName={businessName}
-        >
-          {/* pb-20 on mobile to account for bottom navigation bar */}
-          <main className="flex-1 overflow-y-auto scrollbar-thin pb-20 md:pb-0">
-            <PageTransition>
-              {children}
-            </PageTransition>
-          </main>
-        </PortalShell>
+        {/* Main content area */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Top bar — client shell handles command palette state */}
+          <PortalShell
+            clientName={fullName}
+            businessName={businessName}
+          >
+            {/* pb-20 on mobile to account for bottom navigation bar */}
+            <main className="flex-1 overflow-y-auto scrollbar-thin pb-20 md:pb-0">
+              <PageTransition>
+                {children}
+              </PageTransition>
+            </main>
+          </PortalShell>
+        </div>
       </div>
-    </div>
+    </DemoTourProvider>
   )
 }

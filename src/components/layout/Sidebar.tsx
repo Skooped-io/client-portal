@@ -21,6 +21,7 @@ import {
   Users,
   FileText,
   Pencil,
+  Activity,
 } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -48,17 +49,18 @@ function ScoopAccent() {
 // ===== Navigation Items =====
 
 const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { label: 'SEO & Rankings', href: '/seo', icon: Search },
-  { label: 'Ads & Leads', href: '/ads', icon: Megaphone },
-  { label: 'Content & Social', href: '/content', icon: Pencil },
-  { label: 'Social', href: '/social', icon: Instagram },
-  { label: 'Website', href: '/website', icon: Globe },
-  { label: 'Reports', href: '/reports', icon: FileText },
-  { label: 'Team', href: '/team', icon: Users },
-  { label: 'Messages', href: '/messages', icon: MessageSquare },
-  { label: 'Settings', href: '/settings', icon: Settings },
+  { label: 'Dashboard',      href: '/dashboard', icon: LayoutDashboard, tourId: 'tour-nav-dashboard' },
+  { label: 'Analytics',      href: '/analytics', icon: BarChart3,        tourId: 'tour-nav-analytics' },
+  { label: 'SEO & Rankings', href: '/seo',       icon: Search,           tourId: 'tour-nav-seo' },
+  { label: 'Ads & Leads',    href: '/ads',       icon: Megaphone,        tourId: 'tour-nav-ads' },
+  { label: 'Content & Social', href: '/content', icon: Pencil,           tourId: undefined },
+  { label: 'Social',         href: '/social',    icon: Instagram,        tourId: 'tour-nav-social' },
+  { label: 'Website',        href: '/website',   icon: Globe,            tourId: undefined },
+  { label: 'Activity',       href: '/activity',  icon: Activity,         tourId: undefined },
+  { label: 'Reports',        href: '/reports',   icon: FileText,         tourId: undefined },
+  { label: 'Team',           href: '/team',      icon: Users,            tourId: undefined },
+  { label: 'Messages',       href: '/messages',  icon: MessageSquare,    tourId: 'tour-nav-messages' },
+  { label: 'Settings',       href: '/settings',  icon: Settings,         tourId: undefined },
 ]
 
 // ===== Agent definitions — shown at bottom of sidebar as avatars =====
@@ -136,7 +138,11 @@ function NavItem({ item, isActive, isCollapsed }: NavItemProps) {
   )
 
   const content = (
-    <Link href={item.href} className={itemClass}>
+    <Link
+      href={item.href}
+      className={itemClass}
+      {...(item.tourId ? { 'data-tour-id': item.tourId } : {})}
+    >
       {isActive && (
         <motion.div
           layoutId="nav-active-pill"
