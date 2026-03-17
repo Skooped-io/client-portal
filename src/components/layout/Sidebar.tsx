@@ -406,8 +406,8 @@ function MobileBottomNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background/90 border-t border-border backdrop-blur-md">
-      <div className="flex items-center justify-around px-1 py-1.5 safe-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background/90 border-t border-border backdrop-blur-md" aria-label="Mobile navigation">
+      <div className="flex items-center justify-around px-0 safe-bottom" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 6px)' }}>
         {mobileNavItems.map((item) => {
           const Icon = item.icon
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
@@ -416,7 +416,7 @@ function MobileBottomNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors min-w-[52px] min-h-[44px] justify-center',
+                'relative flex flex-col items-center gap-0.5 flex-1 py-2 rounded-xl transition-colors min-h-[52px] justify-center',
                 isActive
                   ? 'text-strawberry'
                   : 'text-muted-foreground hover:text-foreground',
@@ -429,8 +429,8 @@ function MobileBottomNav() {
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />
               )}
-              <Icon className="w-5 h-5 relative z-10" />
-              <span className="text-[9px] font-medium relative z-10 leading-tight">{item.label}</span>
+              <Icon className="w-5 h-5 relative z-10" aria-hidden="true" />
+              <span className="text-xs font-medium relative z-10 leading-tight">{item.label}</span>
             </Link>
           )
         })}
@@ -451,10 +451,11 @@ export function Sidebar({ userName, userEmail }: SidebarProps) {
           variant="ghost"
           size="icon"
           onClick={() => setIsMobileOpen(true)}
-          className="h-9 w-9 bg-background/90 border border-border shadow-sm rounded-xl backdrop-blur-sm"
+          aria-label="Open navigation menu"
+          aria-expanded={isMobileOpen}
+          className="min-h-[44px] min-w-[44px] bg-background/90 border border-border shadow-sm rounded-xl backdrop-blur-sm"
         >
           <Menu className="w-5 h-5" />
-          <span className="sr-only">Open menu</span>
         </Button>
       </div>
 
@@ -478,17 +479,21 @@ export function Sidebar({ userName, userEmail }: SidebarProps) {
             <motion.div
               key="mobile-drawer"
               className="fixed left-0 top-0 bottom-0 z-50 w-72 md:hidden shadow-2xl"
+              style={{ willChange: 'transform' }}
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation menu"
             >
               <button
                 onClick={() => setIsMobileOpen(false)}
-                className="absolute right-3 top-3 z-10 p-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close navigation menu"
+                className="absolute right-3 top-3 z-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-strawberry focus-visible:ring-offset-1"
               >
                 <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
               </button>
               <SidebarContent
                 userName={userName}

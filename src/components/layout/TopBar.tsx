@@ -67,8 +67,8 @@ function DarkModeToggle() {
       variant="ghost"
       size="icon"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      className="h-9 w-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-card"
-      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      className="min-h-[44px] min-w-[44px] rounded-xl text-muted-foreground hover:text-foreground hover:bg-card"
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       <motion.div
         key={theme}
@@ -99,19 +99,20 @@ function NotificationBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative h-9 w-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-card"
+          className="relative min-h-[44px] min-w-[44px] rounded-xl text-muted-foreground hover:text-foreground hover:bg-card"
+          aria-label={`Notifications, ${unreadCount} unread`}
         >
           <Bell className="h-4.5 w-4.5" />
           {unreadCount > 0 && (
             <motion.span
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
+              aria-hidden="true"
               className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-strawberry text-[9px] font-bold text-white"
             >
               {unreadCount}
             </motion.span>
           )}
-          <span className="sr-only">Notifications ({unreadCount} unread)</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-0 overflow-hidden">
@@ -193,16 +194,16 @@ interface ClientBadgeProps {
 
 function ClientBadge({ clientName, businessName }: ClientBadgeProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 min-w-0">
       <div className="flex flex-col min-w-0">
-        <span className="text-xs text-muted-foreground leading-none mb-0.5">
+        <span className="hidden md:block text-xs text-muted-foreground leading-none mb-0.5 truncate">
           {businessName ?? 'Your Business'}
         </span>
-        <div className="flex items-center gap-1">
-          <span className="text-sm font-semibold font-nunito text-foreground truncate max-w-[160px]">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-sm font-semibold font-nunito text-foreground truncate max-w-[140px] md:max-w-[200px]">
             {clientName}
           </span>
-          <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+          <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" aria-hidden="true" />
         </div>
       </div>
     </div>
@@ -219,21 +220,21 @@ interface TopBarProps {
 
 export function TopBar({ clientName, businessName, onCommandPaletteOpen }: TopBarProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-border bg-background/80 backdrop-blur-sm px-4 md:px-6">
-      {/* Left: Client name (spacer on mobile for hamburger) */}
-      <div className="flex items-center gap-4 flex-1 min-w-0 ml-10 md:ml-0">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 md:gap-4 border-b border-border bg-background/80 backdrop-blur-sm px-4 md:px-6 overflow-hidden">
+      {/* Left: Client name (offset on mobile for hamburger button) */}
+      <div className="flex items-center flex-1 min-w-0 ml-12 md:ml-0">
         <ClientBadge clientName={clientName} businessName={businessName} />
       </div>
 
-      {/* Center: Search / Command palette trigger */}
+      {/* Center: Search / Command palette trigger (md+ only) */}
       {onCommandPaletteOpen && (
-        <div className="flex-1 flex justify-center max-w-xs mx-auto">
+        <div className="hidden md:flex flex-1 justify-center max-w-xs mx-auto">
           <CommandPaletteTrigger onOpen={onCommandPaletteOpen} />
         </div>
       )}
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5 md:gap-1 shrink-0">
         <NotificationBell />
         <DarkModeToggle />
       </div>

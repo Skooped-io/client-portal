@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { motion, useInView } from 'framer-motion'
+import { motion, useInView, useReducedMotion } from 'framer-motion'
 import {
   AreaChart,
   Area,
@@ -52,6 +52,7 @@ export function TrafficChart({ data, isDemo, className }: TrafficChartProps) {
   const showDemo = isDemo ?? !data
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
+  const shouldReduceMotion = useReducedMotion()
 
   const ref = useRef<HTMLDivElement>(null)
   const isInView = useInView(ref, { once: true, margin: '-60px' })
@@ -79,12 +80,14 @@ export function TrafficChart({ data, isDemo, className }: TrafficChartProps) {
       )}
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={isInView ? { opacity: 1, y: 0 } : {}}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut' }}
         className={cn(showDemo && 'opacity-50 blur-[1px] pointer-events-none')}
       >
-        <ResponsiveContainer width="100%" height={240}>
+        {/* aspect-[4/3] on mobile, aspect-[16/9] on sm+ for proper sizing */}
+        <div className="w-full aspect-[4/3] sm:aspect-[16/7]">
+        <ResponsiveContainer width="100%" height="100%">
           <AreaChart key={animKey} data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
             <defs>
               {/* SVG glow filter for lines */}
@@ -160,6 +163,7 @@ export function TrafficChart({ data, isDemo, className }: TrafficChartProps) {
             />
           </AreaChart>
         </ResponsiveContainer>
+        </div>
 
         {/* Legend */}
         <div className="flex items-center gap-4 mt-3 px-2">

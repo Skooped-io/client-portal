@@ -86,7 +86,7 @@ export function MetricCard({
     <motion.div
       id={id}
       className={cn(
-        'group relative rounded-xl border border-border bg-card p-5 cursor-default overflow-hidden',
+        'group relative rounded-lg md:rounded-xl border border-border bg-card p-4 md:p-5 cursor-default overflow-hidden',
         isDemo && 'opacity-75',
         className
       )}
@@ -127,7 +127,7 @@ export function MetricCard({
 
       {/* Value */}
       <div className="mb-2">
-        <p className="text-2xl font-nunito font-bold text-foreground tabular-nums leading-none">
+        <p className="text-2xl md:text-3xl font-nunito font-bold text-foreground tabular-nums leading-none">
           {prefix}
           <AnimatedCounter
             value={value}

@@ -93,14 +93,14 @@ async function WelcomeHeader() {
   const { firstName, dateString } = await DashboardData()
 
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="flex items-start justify-between mb-4 md:mb-6 gap-3">
       <div>
-        <h1 className="text-2xl font-nunito font-bold text-foreground">
+        <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">
           Welcome back, {firstName} 👋
         </h1>
         <p className="text-muted-foreground text-sm mt-1">{dateString}</p>
       </div>
-      <DashboardTourWrapper className="mt-1" />
+      <DashboardTourWrapper className="mt-1 shrink-0" />
     </div>
   )
 }
@@ -109,7 +109,7 @@ async function WelcomeHeader() {
 
 export default async function DashboardPage() {
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-4 md:space-y-6 lg:space-y-8">
 
       {/* Welcome header */}
       <Suspense
@@ -129,7 +129,7 @@ export default async function DashboardPage() {
       </Suspense>
 
       {/* Charts + AI Insights */}
-      <div id="dashboard-chart-section" className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div id="dashboard-chart-section" className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
         {/* Main chart — 2/3 width on xl */}
         <div className="xl:col-span-2">
           <Card className="bg-card border-border rounded-xl h-full overflow-hidden">
@@ -181,7 +181,7 @@ export default async function DashboardPage() {
       </Card>
 
       {/* Activity Feed + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Activity Feed — 2/3 */}
         <div className="lg:col-span-2">
           <Card className="bg-card border-border rounded-xl overflow-hidden">
