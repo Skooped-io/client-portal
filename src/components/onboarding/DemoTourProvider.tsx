@@ -5,6 +5,19 @@ import { DemoTour } from './DemoTour'
 import { TOUR_STEPS } from './tour-steps'
 import { createClient } from '@/lib/supabase/client'
 
+/** Returns true when viewport is at least md (768px) */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    setIsDesktop(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isDesktop
+}
+
 // ===== Context =====
 
 interface DemoTourContextValue {
@@ -30,13 +43,14 @@ type TourState = 'idle' | 'active' | 'complete'
 export function DemoTourProvider({ tourCompleted, children }: DemoTourProviderProps) {
   const [tourState, setTourState] = useState<TourState>('idle')
   const [currentStep, setCurrentStep] = useState(0)
+  const isDesktop = useIsDesktop()
 
-  // Auto-start on first login — small delay so the page fully renders first
+  // Auto-start on first login — only on desktop where sidebar targets exist
   useEffect(() => {
-    if (tourCompleted) return
+    if (tourCompleted || !isDesktop) return
     const timer = setTimeout(() => setTourState('active'), 1200)
     return () => clearTimeout(timer)
-  }, [tourCompleted])
+  }, [tourCompleted, isDesktop])
 
   const markComplete = useCallback(async () => {
     setTourState('idle')
@@ -77,7 +91,8 @@ export function DemoTourProvider({ tourCompleted, children }: DemoTourProviderPr
     setTourState('active')
   }, [])
 
-  const isTourVisible = tourState === 'active' || tourState === 'complete'
+  // Never show tour on mobile — targets live in desktop sidebar
+  const isTourVisible = isDesktop && (tourState === 'active' || tourState === 'complete')
 
   return (
     <DemoTourContext.Provider value={{ replayTour }}>

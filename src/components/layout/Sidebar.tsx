@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -448,6 +448,12 @@ function MobileBottomNav() {
 export function Sidebar({ userName, userEmail }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const pathname = usePathname()
+
+  // Auto-close mobile drawer on navigation
+  useEffect(() => {
+    setIsMobileOpen(false)
+  }, [pathname])
 
   return (
     <>

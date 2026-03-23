@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 @layer base {
+  /* Kill iOS tap-highlight flash on interactive elements */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   :root {
     /* ===== ICE CREAM PALETTE — LIGHT MODE ===== */
 
