@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { refreshSingleToken, buildRefreshErrorUpdate } from '@/lib/oauth/token-refresh'
 import type { OauthConnection } from '@/lib/types'
 import type { RefreshResult, TokenRefreshSummary } from '@/lib/oauth/token-refresh'
+import { portal } from '@/lib/logger'
 
 /**
  * POST /api/oauth/token/refresh

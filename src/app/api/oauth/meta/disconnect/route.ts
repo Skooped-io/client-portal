@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import { revokeMetaToken } from '@/lib/oauth/meta'
+import { portal } from '@/lib/logger'
 
 export async function POST() {
   const supabase = await createClient()

@@ -7,6 +7,7 @@ import {
   encryptGoogleTokens,
 } from '@/lib/oauth/google'
 import type { ConnectedService } from '@/lib/types'
+import { portal } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -112,7 +113,9 @@ export async function GET(request: NextRequest) {
     response.cookies.delete('oauth_google_state')
     return response
   } catch (err) {
-    console.error({ err })
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[oauth/google/callback] Token exchange failed:', message)
+    portal.error('oauth.google.callback', message, { user_id: user?.id })
     return NextResponse.redirect(
       new URL(`${stateData.redirect}?oauth_error=exchange_failed`, request.url)
     )

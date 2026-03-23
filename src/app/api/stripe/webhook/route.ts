@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@/lib/supabase/server'
+import { portal } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -189,31 +190,39 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[stripe/webhook] Signature verification failed', message)
+    portal.error('stripe.webhook.signature', message)
     return NextResponse.json({ error: `Webhook signature invalid: ${message}` }, { status: 400 })
   }
+
+  const startTime = Date.now()
 
   try {
     switch (event.type) {
       case 'checkout.session.completed':
         await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
+        portal.event('stripe.checkout.completed', 'completed')
         break
 
       case 'customer.subscription.updated':
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
+        portal.event('stripe.subscription.updated', 'completed')
         break
 
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
+        portal.event('stripe.subscription.deleted', 'completed')
         break
 
       default:
-        // Unhandled event type — safe to ignore
         console.log('[stripe/webhook] Unhandled event type:', event.type)
     }
   } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[stripe/webhook] Handler error for event', event.type, err)
+    portal.error(`stripe.webhook.${event.type}`, message)
     return NextResponse.json({ error: 'Webhook handler error' }, { status: 500 })
   }
 
+  portal.api('POST', '/api/stripe/webhook', 200, Date.now() - startTime)
   return NextResponse.json({ received: true })
 }

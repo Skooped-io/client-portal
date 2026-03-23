@@ -9,6 +9,7 @@ import {
   encryptMetaTokens,
 } from '@/lib/oauth/meta'
 import type { ConnectedService } from '@/lib/types'
+import { portal } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -114,8 +115,9 @@ export async function GET(request: NextRequest) {
     )
     response.cookies.delete('oauth_meta_state')
     return response
-  } catch (err) {
+  } catch (err: unknown) {
     console.error({ err })
+    const _msg = err instanceof Error ? err.message : "Unknown error"; portal.error("oauth.meta.callback", _msg)
     return NextResponse.redirect(
       new URL(`${stateData.redirect}?oauth_error=exchange_failed`, request.url)
     )

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { stripe, isPlanName, PLAN_PRICE_IDS } from '@/lib/stripe'
+import { portal } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -61,9 +62,12 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    portal.event('stripe.checkout.created', 'completed', { user_id: user.id, metadata: { plan } })
     return NextResponse.json({ url: session.url })
   } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[stripe/checkout] Failed to create checkout session', err)
+    portal.error('stripe.checkout.create', message, { user_id: user.id })
     return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
   }
 }
