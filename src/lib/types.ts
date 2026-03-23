@@ -23,6 +23,7 @@ export interface BusinessProfile {
   org_id: string
   business_name: string
   industry: string | null
+  template: string | null
   services: string[] | null
   service_areas: string[] | null
   phone: string | null

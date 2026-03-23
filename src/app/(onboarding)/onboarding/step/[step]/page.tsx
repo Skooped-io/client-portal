@@ -4,7 +4,7 @@ import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import type { BusinessProfile, OnboardingProgress, OauthConnection } from '@/lib/types'
 
-const TOTAL_STEPS = 5
+const TOTAL_STEPS = 7
 
 interface OnboardingStepPageProps {
   params: Promise<{ step: string }>

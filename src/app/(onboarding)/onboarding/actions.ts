@@ -8,13 +8,15 @@ import {
   onboardingStep1Schema,
   onboardingStep2Schema,
   onboardingStep3Schema,
+  onboardingTemplateSchema,
   type OnboardingStep1Data,
   type OnboardingStep2Data,
   type OnboardingStep3Data,
+  type OnboardingTemplateData,
 } from '@/lib/schemas'
 import type { ActionResult } from '@/lib/types'
 
-const TOTAL_STEPS = 5
+const TOTAL_STEPS = 7
 
 // ─────────────────────────────────────────────
 // Initialize or load onboarding progress
@@ -57,6 +59,70 @@ export async function initOnboardingProgress(): Promise<ActionResult> {
 }
 
 // ─────────────────────────────────────────────
+// Step 1: Template Picker
+// ─────────────────────────────────────────────
+// Migration needed:
+// ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS template text;
+export async function saveTemplateAction(data: OnboardingTemplateData): Promise<ActionResult> {
+  try {
+    const parsed = onboardingTemplateSchema.safeParse(data)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.errors[0]?.message ?? 'Invalid input' }
+    }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Not authenticated' }
+
+    const orgId = await getCurrentOrgId(supabase)
+    if (!orgId) return { success: false, error: 'No organization found' }
+
+    const admin = createAdminClient()
+
+    const { data: existing } = await admin
+      .from('business_profiles')
+      .select('org_id')
+      .eq('org_id', orgId)
+      .single()
+
+    if (existing) {
+      const { error } = await admin
+        .from('business_profiles')
+        .update({
+          template: parsed.data.template,
+          industry: parsed.data.industry ?? null,
+        })
+        .eq('org_id', orgId)
+
+      if (error) {
+        console.error({ error })
+        return { success: false, error: 'Failed to save template selection' }
+      }
+    } else {
+      // business_name will be filled in during step 2 (Business Basics)
+      const { error } = await admin.from('business_profiles').insert({
+        org_id: orgId,
+        business_name: '',
+        template: parsed.data.template,
+        industry: parsed.data.industry ?? null,
+      })
+
+      if (error) {
+        console.error({ error })
+        return { success: false, error: 'Failed to save template selection' }
+      }
+    }
+
+    await advanceStep(user.id, 1)
+    revalidatePath('/onboarding/step/2')
+    return { success: true }
+  } catch (err) {
+    console.error({ err })
+    return { success: false, error: 'Something went wrong' }
+  }
+}
+
+// ─────────────────────────────────────────────
 // Save step progress and advance
 // ─────────────────────────────────────────────
 async function advanceStep(userId: string, completedStep: number): Promise<void> {
@@ -83,7 +149,7 @@ async function advanceStep(userId: string, completedStep: number): Promise<void>
 }
 
 // ─────────────────────────────────────────────
-// Step 1: Business Basics
+// Step 2: Business Basics
 // ─────────────────────────────────────────────
 export async function saveStep1Action(data: OnboardingStep1Data): Promise<ActionResult> {
   try {
@@ -140,8 +206,8 @@ export async function saveStep1Action(data: OnboardingStep1Data): Promise<Action
       }
     }
 
-    await advanceStep(user.id, 1)
-    revalidatePath('/onboarding/step/2')
+    await advanceStep(user.id, 2)
+    revalidatePath('/onboarding/step/3')
     return { success: true }
   } catch (err) {
     console.error({ err })
@@ -150,7 +216,7 @@ export async function saveStep1Action(data: OnboardingStep1Data): Promise<Action
 }
 
 // ─────────────────────────────────────────────
-// Step 2: Location & Service Areas
+// Step 3: Location & Service Areas
 // ─────────────────────────────────────────────
 export async function saveStep2Action(data: OnboardingStep2Data): Promise<ActionResult> {
   try {
@@ -181,8 +247,8 @@ export async function saveStep2Action(data: OnboardingStep2Data): Promise<Action
       return { success: false, error: 'Failed to save location info' }
     }
 
-    await advanceStep(user.id, 2)
-    revalidatePath('/onboarding/step/3')
+    await advanceStep(user.id, 3)
+    revalidatePath('/onboarding/step/4')
     return { success: true }
   } catch (err) {
     console.error({ err })
@@ -191,7 +257,7 @@ export async function saveStep2Action(data: OnboardingStep2Data): Promise<Action
 }
 
 // ─────────────────────────────────────────────
-// Step 3: Services & Description
+// Step 4: Services & Description
 // ─────────────────────────────────────────────
 export async function saveStep3Action(data: OnboardingStep3Data): Promise<ActionResult> {
   try {
@@ -221,8 +287,8 @@ export async function saveStep3Action(data: OnboardingStep3Data): Promise<Action
       return { success: false, error: 'Failed to save services info' }
     }
 
-    await advanceStep(user.id, 3)
-    revalidatePath('/onboarding/step/4')
+    await advanceStep(user.id, 4)
+    revalidatePath('/onboarding/step/5')
     return { success: true }
   } catch (err) {
     console.error({ err })
@@ -231,11 +297,11 @@ export async function saveStep3Action(data: OnboardingStep3Data): Promise<Action
 }
 
 // ─────────────────────────────────────────────
-// Skip a step (OAuth steps 4 and 5)
+// Skip a step (OAuth steps 5 and 6)
 // ─────────────────────────────────────────────
 export async function skipStepAction(step: number): Promise<ActionResult> {
   try {
-    if (step < 4 || step > 5) {
+    if (step < 5 || step > 6) {
       return { success: false, error: 'Only OAuth steps can be skipped' }
     }
 
@@ -266,7 +332,7 @@ export async function completeOnboardingAction(): Promise<ActionResult> {
       .eq('user_id', user.id)
       .single()
 
-    const allSteps = [1, 2, 3, 4, 5]
+    const allSteps = [1, 2, 3, 4, 5, 6, 7]
     const completedSteps = Array.from(
       new Set([...(current?.completed_steps ?? []), ...allSteps])
     )

@@ -3,11 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { StepProgress } from './step-progress'
+import { TemplatePickerStep } from './template-picker-step'
 import { BusinessBasicsStep } from './business-basics-step'
 import { LocationStep } from './location-step'
 import { ServicesStep } from './services-step'
 import { GoogleConnectStep } from './google-connect-step'
 import { MetaConnectStep } from './meta-connect-step'
+import { PlanSelectionStep } from './plan-selection-step'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import type { BusinessProfile, OnboardingProgress, OauthConnection } from '@/lib/types'
 
@@ -47,6 +49,10 @@ interface OnboardingWizardProps {
 
 const STEP_CONFIG = [
   {
+    title: 'Pick your starting template',
+    description: 'Choose the industry template that best fits your business — or go custom.',
+  },
+  {
     title: "Let's get your business set up on Skooped",
     description: 'First, tell us the basics about your business.',
   },
@@ -66,6 +72,10 @@ const STEP_CONFIG = [
   {
     title: 'Connect Instagram & Facebook',
     description: 'Connect your social accounts so we can publish and track content for you.',
+  },
+  {
+    title: 'Choose your plan',
+    description: 'Select the plan that fits your goals. No charge until your website is approved.',
   },
 ]
 
@@ -143,19 +153,25 @@ export function OnboardingWizard({
             </CardHeader>
             <CardContent>
               {currentStep === 1 && (
-                <BusinessBasicsStep businessProfile={businessProfile} />
+                <TemplatePickerStep />
               )}
               {currentStep === 2 && (
-                <LocationStep businessProfile={businessProfile} onBack={goBack} />
+                <BusinessBasicsStep businessProfile={businessProfile} />
               )}
               {currentStep === 3 && (
-                <ServicesStep businessProfile={businessProfile} onBack={goBack} />
+                <LocationStep businessProfile={businessProfile} onBack={goBack} />
               )}
               {currentStep === 4 && (
-                <GoogleConnectStep googleConnection={googleConnection} onBack={goBack} />
+                <ServicesStep businessProfile={businessProfile} onBack={goBack} />
               )}
               {currentStep === 5 && (
+                <GoogleConnectStep googleConnection={googleConnection} onBack={goBack} />
+              )}
+              {currentStep === 6 && (
                 <MetaConnectStep metaConnection={metaConnection} onBack={goBack} />
+              )}
+              {currentStep === 7 && (
+                <PlanSelectionStep businessProfile={businessProfile} onBack={goBack} />
               )}
             </CardContent>
           </Card>

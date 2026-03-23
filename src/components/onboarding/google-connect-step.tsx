@@ -46,16 +46,16 @@ export function GoogleConnectStep({ googleConnection, onBack }: GoogleConnectSte
 
   async function onSkip() {
     setIsSkipping(true)
-    await skipStepAction(4)
-    router.push('/onboarding/step/5')
+    await skipStepAction(5)
+    router.push('/onboarding/step/6')
   }
 
   function onConnect() {
-    window.location.href = '/api/oauth/google/authorize?redirect=/onboarding/step/4'
+    window.location.href = '/api/oauth/google/authorize?redirect=/onboarding/step/5'
   }
 
   function onContinue() {
-    router.push('/onboarding/step/5')
+    router.push('/onboarding/step/6')
   }
 
   return (

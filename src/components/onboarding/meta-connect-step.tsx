@@ -34,16 +34,16 @@ export function MetaConnectStep({ metaConnection, onBack }: MetaConnectStepProps
 
   async function onSkip() {
     setIsSkipping(true)
-    await skipStepAction(5)
-    router.push('/onboarding/complete')
+    await skipStepAction(6)
+    router.push('/onboarding/step/7')
   }
 
   function onConnect() {
-    window.location.href = '/api/oauth/meta/authorize?redirect=/onboarding/step/5'
+    window.location.href = '/api/oauth/meta/authorize?redirect=/onboarding/step/6'
   }
 
   function onContinue() {
-    router.push('/onboarding/complete')
+    router.push('/onboarding/step/7')
   }
 
   return (

@@ -57,7 +57,7 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
     })
 
     if (result.success) {
-      router.push('/onboarding/step/3')
+      router.push('/onboarding/step/4')
     } else {
       toast.error(result.error)
       setIsSubmitting(false)

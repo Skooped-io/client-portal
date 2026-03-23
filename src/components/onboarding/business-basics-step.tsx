@@ -34,7 +34,7 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
     })
 
     if (result.success) {
-      router.push('/onboarding/step/2')
+      router.push('/onboarding/step/3')
     } else {
       toast.error(result.error)
       setIsSubmitting(false)

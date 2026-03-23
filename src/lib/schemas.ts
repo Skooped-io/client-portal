@@ -98,3 +98,10 @@ export const onboardingStep3Schema = z.object({
 export type OnboardingStep1Data = z.infer<typeof onboardingStep1Schema>
 export type OnboardingStep2Data = z.infer<typeof onboardingStep2Schema>
 export type OnboardingStep3Data = z.infer<typeof onboardingStep3Schema>
+
+export const onboardingTemplateSchema = z.object({
+  template: z.string().min(1, 'Please select a template'),
+  industry: z.string().optional(),
+})
+
+export type OnboardingTemplateData = z.infer<typeof onboardingTemplateSchema>

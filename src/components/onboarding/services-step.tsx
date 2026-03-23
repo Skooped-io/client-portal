@@ -78,7 +78,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
     })
 
     if (result.success) {
-      router.push('/onboarding/step/4')
+      router.push('/onboarding/step/5')
     } else {
       toast.error(result.error)
       setIsSubmitting(false)
