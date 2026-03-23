@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { portal } from '@/lib/logger'
 
 interface SyncResult {
   provider: string
@@ -70,5 +71,6 @@ export async function POST(request: NextRequest, { params }: AgentParams) {
     results,
   }
 
+  portal.api('POST', 'agents.sync', 200, 0, { metadata: { orgId, results: results.length } })
   return NextResponse.json(response)
 }

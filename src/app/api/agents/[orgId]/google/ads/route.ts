@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
+import { portal } from '@/lib/logger'
 
 interface AdsCampaign {
   id: string
@@ -153,6 +154,7 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}))
       console.error('[ads] Google Ads API error', res.status, errBody)
+      portal.error('agents.google.ads', `API error ${res.status}`, { metadata: { status: res.status } })
       return NextResponse.json({ error: 'Google Ads API error' }, { status: 500 })
     }
 

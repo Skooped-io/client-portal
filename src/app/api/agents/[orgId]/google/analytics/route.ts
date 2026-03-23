@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
+import { portal } from '@/lib/logger'
 
 interface AnalyticsMetric {
   date: string
@@ -140,7 +141,9 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
         { error: 'Insufficient permissions for Analytics' },
         { status: 403 }
       )
-    const message = err instanceof Error ? err.message : 'Unknown error'; console.error('[analytics] GA4 API error', message)
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[analytics] GA4 API error', message)
+    portal.error('agents.google.analytics', message)
     return NextResponse.json({ error: 'Analytics API error' }, { status: 500 })
   }
 }

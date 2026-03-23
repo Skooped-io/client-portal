@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { portal } from '@/lib/logger'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
 
 interface FacebookPost {
@@ -54,18 +55,26 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
   // GET /{page-id}/posts?fields=id,message,created_time,likes.summary(true),comments.summary(true),shares&access_token=...
   // GET /{page-id}/insights?metric=page_impressions,page_reach,page_engaged_users&period=day&access_token=...
 
-  const stub: FacebookResponse = {
-    pageId: undefined,
-    pageName: undefined,
-    insights: {
-      pageLikes: 0,
-      pageFollowers: 0,
-      reach: 0,
-      impressions: 0,
-      engagement: 0,
-    },
-    recentPosts: [],
-  }
+  try {
+    // TODO: Implement Facebook Graph API calls
+    const stub: FacebookResponse = {
+      pageId: undefined,
+      pageName: undefined,
+      insights: {
+        pageLikes: 0,
+        pageFollowers: 0,
+        reach: 0,
+        impressions: 0,
+        engagement: 0,
+      },
+      recentPosts: [],
+    }
 
-  return NextResponse.json({ data: stub, orgId })
+    portal.api('GET', 'agents.meta.facebook', 200, 0)
+    return NextResponse.json({ data: stub, orgId })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    portal.error('agents.meta.facebook', message)
+    return NextResponse.json({ error: 'Facebook API error' }, { status: 500 })
+  }
 }

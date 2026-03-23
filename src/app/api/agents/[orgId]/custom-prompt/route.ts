@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyServiceApiKey } from '@/lib/agents/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { portal } from '@/lib/logger'
 
 interface AgentParams {
   params: Promise<{ orgId: string }>
@@ -99,5 +100,6 @@ The site reads from a \`siteConfig.json\` file in the project root:
 - The contact form should show a success toast and reset on submission
 - Include a sticky header with mobile hamburger menu`
 
+  portal.api('GET', 'agents.custom-prompt', 200, 0, { metadata: { orgId, businessName: bp.business_name } })
   return NextResponse.json({ prompt, orgId, businessName: bp.business_name })
 }

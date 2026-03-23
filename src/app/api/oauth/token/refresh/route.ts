@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error({ err, connectionId: connection.id, provider: connection.provider })
+      portal.error('oauth.token.refresh', errorMessage, { metadata: { provider: connection.provider } })
 
       const errorUpdate = buildRefreshErrorUpdate(connection, errorMessage)
 

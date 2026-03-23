@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
+import { portal } from '@/lib/logger'
 
 // Types for Search Console data
 interface SearchConsoleQuery {
@@ -139,6 +140,7 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
       )
     const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[search-console] API error', message)
+    portal.error('agents.google.search-console', message)
     return NextResponse.json({ error: 'Search Console API error' }, { status: 500 })
   }
 }

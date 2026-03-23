@@ -4,6 +4,7 @@ import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import { portal } from '@/lib/logger'
 
 export async function GET() {
+  try {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -39,4 +40,9 @@ export async function GET() {
     refresh_error: connection.refresh_error,
     metadata: connection.metadata,
   })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    portal.error('oauth.meta.status', message)
+    return NextResponse.json({ error: 'Failed to check status' }, { status: 500 })
+  }
 }

@@ -31,7 +31,9 @@ export async function POST() {
   try {
     await revokeMetaToken(connection.access_token)
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : 'Unknown error'
     console.error({ err, note: 'Meta token revocation failed — removing from DB anyway' })
+    portal.error('oauth.meta.disconnect', errMsg)
   }
 
   const { error } = await supabase

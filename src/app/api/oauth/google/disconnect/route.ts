@@ -33,7 +33,9 @@ export async function POST() {
     await revokeGoogleToken(connection.access_token)
   } catch (err) {
     // Log but don't fail — we still remove from DB
+    const errMsg = err instanceof Error ? err.message : 'Unknown error'
     console.error({ err, note: 'Google token revocation failed — removing from DB anyway' })
+    portal.error('oauth.google.disconnect', errMsg)
   }
 
   const { error } = await supabase

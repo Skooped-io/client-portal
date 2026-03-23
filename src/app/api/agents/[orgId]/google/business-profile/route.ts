@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
+import { portal } from '@/lib/logger'
 
 interface GbpReview {
   reviewId: string
@@ -164,7 +165,9 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
 
     return NextResponse.json({ data, orgId })
   } catch (err: unknown) {
-    console.error('[business-profile] API error', err)
+    const errMsg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[business-profile] API error', errMsg)
+    portal.error('agents.google.business-profile', errMsg)
     return NextResponse.json({ error: 'Business Profile API error' }, { status: 500 })
   }
 }

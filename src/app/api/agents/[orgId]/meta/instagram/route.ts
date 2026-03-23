@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { portal } from '@/lib/logger'
 import { verifyServiceApiKey, getDecryptedOauthToken } from '@/lib/agents/auth'
 
 interface InstagramPost {
@@ -54,17 +55,25 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
   // GET /{ig-user-id}/media?fields=id,caption,media_type,timestamp,like_count,comments_count&access_token=...
   // GET /{ig-user-id}/insights?metric=reach,impressions,profile_views&period=day&access_token=...
 
-  const stub: InstagramResponse = {
-    accountId: undefined,
-    username: undefined,
-    insights: {
-      followerCount: 0,
-      reach: 0,
-      impressions: 0,
-      profileViews: 0,
-    },
-    recentPosts: [],
-  }
+  try {
+    // TODO: Implement Instagram Graph API calls
+    const stub: InstagramResponse = {
+      accountId: undefined,
+      username: undefined,
+      insights: {
+        followerCount: 0,
+        reach: 0,
+        impressions: 0,
+        profileViews: 0,
+      },
+      recentPosts: [],
+    }
 
-  return NextResponse.json({ data: stub, orgId })
+    portal.api('GET', 'agents.meta.instagram', 200, 0)
+    return NextResponse.json({ data: stub, orgId })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    portal.error('agents.meta.instagram', message)
+    return NextResponse.json({ error: 'Instagram API error' }, { status: 500 })
+  }
 }
