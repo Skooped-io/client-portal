@@ -108,10 +108,22 @@ const weeklyLeads = [
   { week: 'Wk 6', leads: 22 },
 ]
 
-const AD_SPEND_DATA   = generateAdSpendData(8)
-const SPEND_SPARK     = generateSparklineData('up', 12)
-const CONV_SPARK      = generateSparklineData('up', 12)
-const CPC_SPARK       = generateSparklineData('down', 12)
+const DEMO_AD_SPEND_DATA = generateAdSpendData(8)
+const SPEND_SPARK        = generateSparklineData('up', 12)
+const CONV_SPARK         = generateSparklineData('up', 12)
+const CPC_SPARK          = generateSparklineData('down', 12)
+
+// ===== Props interface =====
+
+export interface AdsPageData {
+  summary: {
+    totalSpend: number
+    totalLeads: number
+    avgCpl: number
+    activeCampaigns: number
+  }
+  adSpendData: Array<{ date: string; spend: number; conversions: number; cpc: number }>
+}
 
 // ===== Sub-components =====
 
@@ -229,14 +241,23 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ===== Main Page =====
 
-export default function AdsPage() {
+export default function AdsPage({ data }: { data?: AdsPageData } = {}) {
   const [_loading] = useState(false)
   const loading = _loading
 
-  const totalSpend = campaigns.reduce((a, c) => a + c.spend, 0)
+  const isDemo = !data
+
+  const demoTotalSpend = campaigns.reduce((a, c) => a + c.spend, 0)
   const totalBudget = campaigns.reduce((a, c) => a + c.budget, 0)
-  const totalLeads = campaigns.reduce((a, c) => a + c.leads, 0)
-  const avgCpl = totalSpend / totalLeads
+  const demoTotalLeads = campaigns.reduce((a, c) => a + c.leads, 0)
+  const demoAvgCpl = demoTotalSpend / demoTotalLeads
+
+  const totalSpend = isDemo ? demoTotalSpend : data.summary.totalSpend
+  const totalLeads = isDemo ? demoTotalLeads : data.summary.totalLeads
+  const avgCpl = isDemo ? demoAvgCpl : data.summary.avgCpl
+  const activeCampaigns = isDemo ? campaigns.filter((c) => c.status === 'active').length : data.summary.activeCampaigns
+
+  const adSpendData = isDemo ? DEMO_AD_SPEND_DATA : data.adSpendData
 
   return (
     <PageTransition>
@@ -247,7 +268,7 @@ export default function AdsPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Ads & Leads</h1>
-              <SampleBadge />
+              {isDemo && <SampleBadge />}
             </div>
             <p className="text-muted-foreground text-sm">
               Campaign performance, cost per lead, and your lead pipeline.
@@ -261,7 +282,7 @@ export default function AdsPage() {
             { label: 'Total Ad Spend', value: `$${totalSpend.toLocaleString()}`, icon: DollarSign, color: 'text-strawberry' },
             { label: 'Total Leads', value: totalLeads, icon: Users, color: 'text-blueberry' },
             { label: 'Avg. Cost / Lead', value: `$${avgCpl.toFixed(2)}`, icon: TrendingUp, color: 'text-mint' },
-            { label: 'Active Campaigns', value: campaigns.filter((c) => c.status === 'active').length, icon: Megaphone, color: 'text-vanilla' },
+            { label: 'Active Campaigns', value: activeCampaigns, icon: Megaphone, color: 'text-vanilla' },
           ].map((stat) => {
             const Icon = stat.icon
             return (
@@ -342,16 +363,16 @@ export default function AdsPage() {
         {/* Ad Spend vs Conversions */}
         <ChartWrapper
           title="Ad Spend vs Conversions"
-          subtitle="Weekly — 8 weeks"
+          subtitle={isDemo ? 'Weekly — 8 weeks' : 'Daily — 30 days'}
           variant="strawberry"
-          badge={<SampleBadge />}
+          badge={isDemo ? <SampleBadge /> : undefined}
           legend={[
             { label: 'Spend ($)',      color: chartColors.strawberry },
             { label: 'Conversions',    color: chartColors.mint       },
           ]}
         >
           <AreaChartBranded
-            data={AD_SPEND_DATA}
+            data={adSpendData}
             series={[
               { dataKey: 'spend',       label: 'Spend ($)',   color: chartColors.strawberry },
               { dataKey: 'conversions', label: 'Conversions', color: chartColors.mint       },
@@ -385,9 +406,9 @@ export default function AdsPage() {
         {/* CPC Sparklines */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
-            { label: 'Total Spend',    data: SPEND_SPARK, color: chartColors.strawberry, value: `$${AD_SPEND_DATA.reduce((a,b) => a + b.spend, 0).toLocaleString()}` },
-            { label: 'Conversions',    data: CONV_SPARK,  color: chartColors.mint,       value: AD_SPEND_DATA.reduce((a,b) => a + b.conversions, 0).toString() },
-            { label: 'Avg. CPC',       data: CPC_SPARK,   color: chartColors.gold,       value: `$${(AD_SPEND_DATA.reduce((a,b) => a + b.cpc, 0) / AD_SPEND_DATA.length).toFixed(2)}` },
+            { label: 'Total Spend',    data: SPEND_SPARK, color: chartColors.strawberry, value: `$${adSpendData.reduce((a,b) => a + b.spend, 0).toLocaleString()}` },
+            { label: 'Conversions',    data: CONV_SPARK,  color: chartColors.mint,       value: adSpendData.reduce((a,b) => a + b.conversions, 0).toString() },
+            { label: 'Avg. CPC',       data: CPC_SPARK,   color: chartColors.gold,       value: `$${adSpendData.length > 0 ? (adSpendData.reduce((a,b) => a + b.cpc, 0) / adSpendData.length).toFixed(2) : '0.00'}` },
           ].map((card) => (
             <Card key={card.label} className="bg-card border-border rounded-xl overflow-hidden">
               <CardContent className="p-4">
@@ -415,7 +436,7 @@ export default function AdsPage() {
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col items-center gap-6">
-                <CPLRing cpl={avgCpl} budget={totalBudget} />
+                <CPLRing cpl={isDemo ? demoAvgCpl : avgCpl} budget={totalBudget} />
                 <div className="w-full">
                   <p className="text-xs text-muted-foreground mb-2">Weekly Lead Volume</p>
                   <ResponsiveContainer width="100%" height={140}>

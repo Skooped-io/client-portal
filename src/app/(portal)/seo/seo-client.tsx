@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Search,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -24,7 +23,7 @@ import { generateKeywordRankingData, generateOrganicData, seoHealthScore } from 
 
 // ===== Demo Data =====
 
-const impressionsData = [
+const DEMO_IMPRESSIONS_DATA = [
   { date: 'Mar 1', impressions: 1240, clicks: 87 },
   { date: 'Mar 5', impressions: 1580, clicks: 112 },
   { date: 'Mar 9', impressions: 1320, clicks: 94 },
@@ -38,7 +37,7 @@ const impressionsData = [
 const KEYWORD_TREND_DATA = generateKeywordRankingData(8)
 const ORGANIC_DATA = generateOrganicData(10)
 
-const keywordData = [
+const DEMO_KEYWORDS = [
   { keyword: 'fence installation near me', position: 3, prev: 5, volume: 1200, clicks: 48 },
   { keyword: 'vinyl fencing company franklin tn', position: 1, prev: 2, volume: 480, clicks: 67 },
   { keyword: 'wood fence cost estimate', position: 7, prev: 7, volume: 2100, clicks: 12 },
@@ -49,12 +48,19 @@ const keywordData = [
   { keyword: 'fence repair service', position: 6, prev: 6, volume: 530, clicks: 19 },
 ]
 
-const topPages = [
+const DEMO_TOP_PAGES = [
   { url: '/vinyl-fencing', title: 'Vinyl Fencing Services', clicks: 214, impressions: 1840, ctr: '11.6%', position: 2.1 },
   { url: '/fence-installation', title: 'Professional Fence Installation', clicks: 167, impressions: 1420, ctr: '11.8%', position: 3.4 },
   { url: '/wood-fencing', title: 'Wood Fence Contractors', clicks: 98, impressions: 1180, ctr: '8.3%', position: 5.2 },
   { url: '/contact', title: 'Contact Us - Free Estimate', clicks: 73, impressions: 890, ctr: '8.2%', position: 6.1 },
   { url: '/', title: 'Home | Gunns Fencing', clicks: 62, impressions: 1230, ctr: '5.0%', position: 7.8 },
+]
+
+const DEMO_STATS = [
+  { label: 'Total Impressions', value: '14.8K', change: '+22%', positive: true },
+  { label: 'Total Clicks', value: '1,044', change: '+18%', positive: true },
+  { label: 'Avg. Position', value: '5.8', change: '-1.2', positive: true },
+  { label: 'Avg. CTR', value: '7.1%', change: '+0.8%', positive: true },
 ]
 
 const gbpItems = [
@@ -74,14 +80,10 @@ type DateRange = (typeof DATE_RANGES)[number]
 // ===== Props interface for server-side data injection =====
 
 export interface SeoPageData {
-  impressions?: Array<{ date: string; impressions: number; clicks: number }>
-  keywords?: Array<{ keyword: string; position: number; prev: number; volume: number; clicks: number }>
-  pages?: Array<{ url: string; title: string; clicks: number; impressions: number; ctr: string; position: number }>
-  healthScore?: number
-  totalClicks?: number
-  totalImpressions?: number
-  avgCtr?: number
-  avgPosition?: number
+  stats: Array<{ label: string; value: string; change: string; positive: boolean }>
+  impressions: Array<{ date: string; impressions: number; clicks: number }>
+  keywords: Array<{ keyword: string; position: number; prev: number; volume: number; clicks: number }>
+  pages: Array<{ url: string; title: string; clicks: number; impressions: number; ctr: string; position: number }>
 }
 
 interface SeoPageProps {
@@ -128,16 +130,15 @@ function GBPRing({ score }: { score: number }) {
   )
 }
 
-
 // ===== Main page =====
 
 export default function SeoPage({ data }: SeoPageProps = {}) {
-  // Use real data when provided, fall back to demo data
-  const realImpressions = data?.impressions ?? impressionsData
-  const realKeywords = data?.keywords ?? keywordData
-  const realPages = data?.pages ?? topPages
-  const realHealthScore = data?.healthScore ?? seoHealthScore
   const isDemo = !data
+  const displayStats = isDemo ? DEMO_STATS : data.stats
+  const displayImpressions = isDemo ? DEMO_IMPRESSIONS_DATA : data.impressions
+  const displayKeywords = isDemo ? DEMO_KEYWORDS : data.keywords
+  const displayPages = isDemo ? DEMO_TOP_PAGES : data.pages
+
   const [dateRange, setDateRange] = useState<DateRange>('30d')
   const [loading] = useState(false)
 
@@ -158,7 +159,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">SEO & Rankings</h1>
-              <SampleBadge />
+              {isDemo && <SampleBadge />}
             </div>
             <p className="text-muted-foreground text-sm">
               Keyword positions, search impressions, and Google Business Profile health.
@@ -191,12 +192,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
           animate="visible"
           className="grid grid-cols-2 lg:grid-cols-4 gap-4"
         >
-          {[
-            { label: 'Total Impressions', value: '14.8K', change: '+22%', positive: true },
-            { label: 'Total Clicks', value: '1,044', change: '+18%', positive: true },
-            { label: 'Avg. Position', value: '5.8', change: '-1.2', positive: true },
-            { label: 'Avg. CTR', value: '7.1%', change: '+0.8%', positive: true },
-          ].map((stat) => (
+          {displayStats.map((stat) => (
             <motion.div key={stat.label} variants={slideUp}>
               <Card className="bg-card border-border rounded-lg md:rounded-xl">
                 <CardContent className="p-4 md:p-5">
@@ -210,9 +206,11 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                     <>
                       <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
                       <p className="text-2xl font-nunito font-bold text-foreground">{stat.value}</p>
-                      <p className={cn('text-xs font-medium mt-1', stat.positive ? 'text-emerald-500' : 'text-red-400')}>
-                        {stat.change} vs prev period
-                      </p>
+                      {stat.change && (
+                        <p className={cn('text-xs font-medium mt-1', stat.positive ? 'text-emerald-500' : 'text-red-400')}>
+                          {stat.change} vs prev period
+                        </p>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -225,7 +223,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
         <ChartWrapper
           title="Impressions & Clicks"
           variant="gold"
-          badge={<SampleBadge />}
+          badge={isDemo ? <SampleBadge /> : undefined}
           legend={[
             { label: 'Impressions', color: chartColors.vanilla },
             { label: 'Clicks',      color: chartColors.blueberry },
@@ -235,7 +233,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
             <Skeleton className="h-56 w-full rounded-lg" />
           ) : (
             <AreaChartBranded
-              data={impressionsData}
+              data={displayImpressions}
               series={[
                 { dataKey: 'impressions', label: 'Impressions', color: chartColors.vanilla  },
                 { dataKey: 'clicks',      label: 'Clicks',      color: chartColors.blueberry },
@@ -247,7 +245,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
           )}
         </ChartWrapper>
 
-        {/* Keyword Position Trend */}
+        {/* Keyword Position Trend — always demo (no per-keyword historical trend in DB) */}
         <ChartWrapper
           title="Keyword Position Trends"
           subtitle="Top 3 keywords — lower position = better ranking"
@@ -276,16 +274,16 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
         {/* Organic Traffic Area */}
         <ChartWrapper
           title="Organic Traffic"
-          subtitle="Impressions & clicks over 10 weeks"
+          subtitle={isDemo ? 'Impressions & clicks over 10 weeks' : 'Impressions & clicks — 30 days'}
           variant="blueberry"
-          badge={<SampleBadge />}
+          badge={isDemo ? <SampleBadge /> : undefined}
           legend={[
             { label: 'Impressions', color: chartColors.vanilla  },
             { label: 'Clicks',      color: chartColors.blueberry },
           ]}
         >
           <AreaChartBranded
-            data={ORGANIC_DATA}
+            data={isDemo ? ORGANIC_DATA : displayImpressions}
             series={[
               { dataKey: 'impressions', label: 'Impressions', color: chartColors.vanilla  },
               { dataKey: 'clicks',      label: 'Clicks',      color: chartColors.blueberry },
@@ -314,7 +312,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                     <TrendingUp className="w-4 h-4 text-strawberry" />
                     <CardTitle className="text-sm font-nunito font-semibold">Keyword Rankings</CardTitle>
                   </div>
-                  <SampleBadge />
+                  {isDemo && <SampleBadge />}
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -340,7 +338,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                       <span className="text-right">Clicks</span>
                     </div>
                     <motion.div variants={stagger} initial="hidden" animate="visible">
-                      {keywordData.map((kw) => (
+                      {displayKeywords.map((kw) => (
                         <motion.div
                           key={kw.keyword}
                           variants={slideUp}
@@ -426,7 +424,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                   <ArrowUpRight className="w-4 h-4 text-strawberry" />
                   <CardTitle className="text-sm font-nunito font-semibold">Top Performing Pages</CardTitle>
                 </div>
-                <SampleBadge />
+                {isDemo && <SampleBadge />}
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -451,7 +449,7 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                     <span className="text-right">Avg Pos.</span>
                   </div>
                   <motion.div variants={stagger} initial="hidden" animate="visible">
-                    {topPages.map((page) => (
+                    {displayPages.map((page) => (
                       <motion.div
                         key={page.url}
                         variants={slideUp}
@@ -464,7 +462,9 @@ export default function SeoPage({ data }: SeoPageProps = {}) {
                         <span className="text-sm font-medium text-foreground text-right self-center">{page.clicks}</span>
                         <span className="text-sm text-muted-foreground text-right self-center">{page.impressions.toLocaleString()}</span>
                         <Badge variant="secondary" className="self-center ml-auto text-xs">{page.ctr}</Badge>
-                        <span className="text-sm text-muted-foreground text-right self-center">{page.position}</span>
+                        <span className="text-sm text-muted-foreground text-right self-center">
+                          {page.position > 0 ? page.position : '—'}
+                        </span>
                       </motion.div>
                     ))}
                   </motion.div>

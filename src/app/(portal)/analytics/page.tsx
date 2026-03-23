@@ -1,30 +1,51 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
-import { getCurrentOrgId } from '@/lib/supabase/helpers'
+import { getAnalyticsOverview } from '@/lib/data/analytics'
 import AnalyticsPage from './analytics-client'
+import type { AnalyticsPageData } from './analytics-client'
 
 export const metadata: Metadata = { title: 'Analytics' }
 export const revalidate = 300
 
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export default async function AnalyticsServerPage() {
-  const supabase = await createClient()
-  const orgId = await getCurrentOrgId(supabase)
+  const { latest, trend, hasData } = await getAnalyticsOverview(30)
 
-  if (!orgId) return <AnalyticsPage />
+  if (!hasData || !latest) return <AnalyticsPage />
 
-  const { data: rows } = await supabase
-    .from('analytics_metrics')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false })
-    .limit(30)
+  const trafficData = trend.map((s) => ({
+    date: fmtDate(s.date),
+    visitors: s.users,
+    sessions: s.sessions,
+    pageviews: s.pageviews,
+  }))
 
-  if (!rows || rows.length === 0) return <AnalyticsPage />
+  const pageViewData = trend.map((s) => ({
+    date: fmtDate(s.date),
+    bounceRate: s.bounce_rate,
+    avgSession: Math.round(s.avg_session_duration),
+  }))
 
-  const latest = rows[0]
+  const topPages = (latest.top_pages ?? []).map((p) => ({
+    page: p.page,
+    views: p.views,
+    bounce: '—',
+    time: '—',
+  }))
 
-  // Pass as window-level data that the client component can pick up
-  // For now, the client component uses its own demo data
-  // TODO: Add data prop to analytics-client.tsx matching this shape
-  return <AnalyticsPage />
+  const data: AnalyticsPageData = {
+    trafficData,
+    pageViewData,
+    topPages,
+    summary: {
+      totalVisitors: trend.reduce((a, s) => a + s.users, 0),
+      totalPageviews: trend.reduce((a, s) => a + s.pageviews, 0),
+      avgBounce: trend.reduce((a, s) => a + s.bounce_rate, 0) / Math.max(trend.length, 1),
+      avgSession: trend.reduce((a, s) => a + s.avg_session_duration, 0) / Math.max(trend.length, 1),
+    },
+  }
+
+  return <AnalyticsPage data={data} />
 }

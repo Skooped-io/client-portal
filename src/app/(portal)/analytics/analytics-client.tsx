@@ -9,8 +9,38 @@ import { ChartWrapper, AreaChartBranded, BarChartBranded, LineChartBranded } fro
 import { chartColors } from '@/lib/chart-theme'
 import { generatePageViewData, generateTrafficData } from '@/lib/chart-demo-data'
 
-const TRAFFIC_DATA = generateTrafficData(14)
-const PAGE_VIEW_DATA = generatePageViewData(14)
+// ===== Demo data =====
+
+const DEMO_TRAFFIC_DATA = generateTrafficData(14)
+const DEMO_PAGE_VIEW_DATA = generatePageViewData(14)
+
+const DEMO_TOP_PAGES = [
+  { page: '/vinyl-fencing',      views: 1840, bounce: '8.4%',  time: '3m 12s' },
+  { page: '/fence-installation', views: 1420, bounce: '10.1%', time: '2m 48s' },
+  { page: '/',                   views: 1230, bounce: '34.2%', time: '1m 05s' },
+  { page: '/wood-fencing',       views:  980, bounce: '12.3%', time: '2m 31s' },
+  { page: '/contact',            views:  760, bounce: '18.7%', time: '1m 52s' },
+]
+
+// ===== Props interface =====
+
+export interface AnalyticsPageData {
+  trafficData: Array<{ date: string; visitors: number; sessions: number; pageviews: number }>
+  pageViewData: Array<{ date: string; bounceRate: number; avgSession: number }>
+  topPages: Array<{ page: string; views: number; bounce: string; time: string }>
+  summary: {
+    totalVisitors: number
+    totalPageviews: number
+    avgBounce: number
+    avgSession: number
+  }
+}
+
+interface AnalyticsPageProps {
+  data?: AnalyticsPageData
+}
+
+// ===== Sub-components =====
 
 function SampleBadge() {
   return (
@@ -20,13 +50,32 @@ function SampleBadge() {
   )
 }
 
-export default function AnalyticsPage() {
-  const totalVisitors = TRAFFIC_DATA.reduce((a, b) => a + b.visitors, 0)
-  const totalPageviews = TRAFFIC_DATA.reduce((a, b) => a + b.pageviews, 0)
-  const avgBounce = (PAGE_VIEW_DATA.reduce((a, b) => a + b.bounceRate, 0) / PAGE_VIEW_DATA.length).toFixed(1)
-  const avgSession = Math.round(PAGE_VIEW_DATA.reduce((a, b) => a + b.avgSession, 0) / PAGE_VIEW_DATA.length)
+// ===== Main component =====
+
+export default function AnalyticsPage({ data }: AnalyticsPageProps = {}) {
+  const isDemo = !data
+
+  const trafficData = isDemo ? DEMO_TRAFFIC_DATA : data.trafficData
+  const pageViewData = isDemo ? DEMO_PAGE_VIEW_DATA : data.pageViewData
+  const topPages = isDemo ? DEMO_TOP_PAGES : data.topPages
 
   const fmtSecs = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`
+
+  const totalVisitors = isDemo
+    ? DEMO_TRAFFIC_DATA.reduce((a, b) => a + b.visitors, 0)
+    : data.summary.totalVisitors
+
+  const totalPageviews = isDemo
+    ? DEMO_TRAFFIC_DATA.reduce((a, b) => a + b.pageviews, 0)
+    : data.summary.totalPageviews
+
+  const avgBounce = isDemo
+    ? (DEMO_PAGE_VIEW_DATA.reduce((a, b) => a + b.bounceRate, 0) / DEMO_PAGE_VIEW_DATA.length).toFixed(1)
+    : data.summary.avgBounce.toFixed(1)
+
+  const avgSession = isDemo
+    ? Math.round(DEMO_PAGE_VIEW_DATA.reduce((a, b) => a + b.avgSession, 0) / DEMO_PAGE_VIEW_DATA.length)
+    : Math.round(data.summary.avgSession)
 
   return (
     <PageTransition>
@@ -37,7 +86,7 @@ export default function AnalyticsPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Analytics</h1>
-              <SampleBadge />
+              {isDemo && <SampleBadge />}
             </div>
             <p className="text-muted-foreground text-sm">
               Website performance, visitor behaviour, and engagement metrics.
@@ -77,15 +126,15 @@ export default function AnalyticsPage() {
         {/* Page Views Area Chart */}
         <ChartWrapper
           title="Page Views"
-          subtitle="Last 14 days"
+          subtitle={isDemo ? 'Last 14 days' : 'Last 30 days'}
           variant="strawberry"
-          badge={<SampleBadge />}
+          badge={isDemo ? <SampleBadge /> : undefined}
           legend={[
             { label: 'Page Views', color: chartColors.strawberry },
           ]}
         >
           <AreaChartBranded
-            data={TRAFFIC_DATA}
+            data={trafficData}
             series={[
               { dataKey: 'pageviews', label: 'Page Views', color: chartColors.strawberry },
             ]}
@@ -103,10 +152,10 @@ export default function AnalyticsPage() {
             title="Bounce Rate"
             subtitle="Daily % — lower is better"
             variant="blueberry"
-            badge={<SampleBadge />}
+            badge={isDemo ? <SampleBadge /> : undefined}
           >
             <BarChartBranded
-              data={PAGE_VIEW_DATA}
+              data={pageViewData}
               dataKey="bounceRate"
               label="Bounce Rate"
               xKey="date"
@@ -121,11 +170,11 @@ export default function AnalyticsPage() {
             title="Avg. Session Duration"
             subtitle="Seconds per visit"
             variant="mint"
-            badge={<SampleBadge />}
+            badge={isDemo ? <SampleBadge /> : undefined}
             legend={[{ label: 'Avg. Session (sec)', color: chartColors.mint }]}
           >
             <LineChartBranded
-              data={PAGE_VIEW_DATA}
+              data={pageViewData}
               series={[
                 { dataKey: 'avgSession', label: 'Session (sec)', color: chartColors.mint },
               ]}
@@ -140,16 +189,16 @@ export default function AnalyticsPage() {
         {/* Visitors vs Sessions */}
         <ChartWrapper
           title="Visitors vs Sessions"
-          subtitle="Last 14 days"
+          subtitle={isDemo ? 'Last 14 days' : 'Last 30 days'}
           variant="gold"
-          badge={<SampleBadge />}
+          badge={isDemo ? <SampleBadge /> : undefined}
           legend={[
             { label: 'Visitors', color: chartColors.gold },
             { label: 'Sessions', color: chartColors.vanilla },
           ]}
         >
           <AreaChartBranded
-            data={TRAFFIC_DATA}
+            data={trafficData}
             series={[
               { dataKey: 'sessions', label: 'Sessions', color: chartColors.vanilla },
               { dataKey: 'visitors', label: 'Visitors', color: chartColors.gold },
@@ -169,7 +218,7 @@ export default function AnalyticsPage() {
                   <BarChart3 className="w-4 h-4 text-strawberry" />
                   <CardTitle className="text-sm font-nunito font-semibold">Top Pages</CardTitle>
                 </div>
-                <SampleBadge />
+                {isDemo && <SampleBadge />}
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -180,13 +229,7 @@ export default function AnalyticsPage() {
                   <span className="text-right">Bounce</span>
                   <span className="text-right">Avg. Time</span>
                 </div>
-                {[
-                  { page: '/vinyl-fencing',      views: 1840, bounce: '8.4%',  time: '3m 12s' },
-                  { page: '/fence-installation', views: 1420, bounce: '10.1%', time: '2m 48s' },
-                  { page: '/',                   views: 1230, bounce: '34.2%', time: '1m 05s' },
-                  { page: '/wood-fencing',       views:  980, bounce: '12.3%', time: '2m 31s' },
-                  { page: '/contact',            views:  760, bounce: '18.7%', time: '1m 52s' },
-                ].map((row) => (
+                {topPages.map((row) => (
                   <div
                     key={row.page}
                     className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors min-w-[400px]"
