@@ -164,20 +164,22 @@ function FilterPill({ active, onClick, children }: FilterPillProps) {
 
 // ===== Page =====
 
-export default function ActivityPage() {
+export default function ActivityPage({ initialActivities }: { initialActivities?: BotActivity[] } = {}) {
+  const activities = initialActivities ?? DEMO_BOT_ACTIVITIES
+
   const [agentFilter, setAgentFilter] = useState<'all' | AgentId>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | ActionType>('all')
   const [readIds, setReadIds] = useState<Set<string>>(
-    () => new Set(DEMO_BOT_ACTIVITIES.filter((a) => a.read).map((a) => a.id)),
+    () => new Set(activities.filter((a) => a.read).map((a) => a.id)),
   )
 
   const filtered = useMemo(() => {
-    return DEMO_BOT_ACTIVITIES.filter((a) => {
+    return activities.filter((a) => {
       if (agentFilter !== 'all' && a.agent !== agentFilter) return false
       if (typeFilter !== 'all' && a.action_type !== typeFilter) return false
       return true
     })
-  }, [agentFilter, typeFilter])
+  }, [activities, agentFilter, typeFilter])
 
   const unreadCount = filtered.filter((a) => !readIds.has(a.id)).length
 
@@ -186,8 +188,8 @@ export default function ActivityPage() {
   }, [])
 
   const onMarkAllRead = useCallback(() => {
-    setReadIds(new Set(DEMO_BOT_ACTIVITIES.map((a) => a.id)))
-  }, [])
+    setReadIds(new Set(activities.map((a) => a.id)))
+  }, [activities])
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
