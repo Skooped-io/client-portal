@@ -10,11 +10,28 @@ import { chartColors } from '@/lib/chart-theme'
 import {
   generateSocialData,
   generateFollowerData,
-  postPerformance,
+  postPerformance as demoPostPerformance,
 } from '@/lib/chart-demo-data'
 
-const SOCIAL_DATA   = generateSocialData(14)
-const FOLLOWER_DATA = generateFollowerData(12)
+// ===== Demo data =====
+
+const DEMO_SOCIAL_DATA   = generateSocialData(14)
+const DEMO_FOLLOWER_DATA = generateFollowerData(12)
+
+// ===== Props interface =====
+
+export interface SocialPageData {
+  summary: {
+    followers: number
+    likes: number
+    comments: number
+    reach: number
+  }
+  followerData: Array<{ date: string; followers: number; gained: number }>
+  postPerformance: Array<{ label: string; engagement: number }>
+}
+
+// ===== Sub-components =====
 
 function SampleBadge() {
   return (
@@ -24,13 +41,22 @@ function SampleBadge() {
   )
 }
 
-export default function SocialPage() {
-  const lastWeek = SOCIAL_DATA.slice(-7)
-  const totalLikes    = lastWeek.reduce((a, b) => a + b.likes, 0)
-  const totalComments = lastWeek.reduce((a, b) => a + b.comments, 0)
-  const totalShares   = lastWeek.reduce((a, b) => a + b.shares, 0)
-  const totalReach    = lastWeek.reduce((a, b) => a + b.reach, 0)
-  const latestFollowers = FOLLOWER_DATA[FOLLOWER_DATA.length - 1]?.followers ?? 0
+// ===== Main component =====
+
+export default function SocialPage({ data }: { data?: SocialPageData } = {}) {
+  const isDemo = !data
+
+  // Demo computations
+  const demoLastWeek = DEMO_SOCIAL_DATA.slice(-7)
+  const demoFollowers = DEMO_FOLLOWER_DATA[DEMO_FOLLOWER_DATA.length - 1]?.followers ?? 0
+
+  const followers   = isDemo ? demoFollowers : data.summary.followers
+  const totalLikes  = isDemo ? demoLastWeek.reduce((a, b) => a + b.likes, 0) : data.summary.likes
+  const totalComments = isDemo ? demoLastWeek.reduce((a, b) => a + b.comments, 0) : data.summary.comments
+  const totalReach  = isDemo ? demoLastWeek.reduce((a, b) => a + b.reach, 0) : data.summary.reach
+
+  const followerData   = isDemo ? DEMO_FOLLOWER_DATA : data.followerData
+  const postPerf       = isDemo ? demoPostPerformance : data.postPerformance
 
   return (
     <PageTransition>
@@ -41,7 +67,7 @@ export default function SocialPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">Social Media</h1>
-              <SampleBadge />
+              {isDemo && <SampleBadge />}
             </div>
             <p className="text-muted-foreground text-sm">
               Engagement trends, follower growth, and post performance.
@@ -52,10 +78,10 @@ export default function SocialPage() {
         {/* Stat Row */}
         <motion.div variants={stagger} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Followers',    value: latestFollowers.toLocaleString(), icon: Users,         color: 'text-strawberry' },
-            { label: 'Likes (7d)',   value: totalLikes.toLocaleString(),      icon: Heart,         color: 'text-blueberry'  },
-            { label: 'Comments (7d)',value: totalComments.toLocaleString(),   icon: MessageCircle, color: 'text-mint'       },
-            { label: 'Reach (7d)',   value: totalReach.toLocaleString(),      icon: Share2,        color: 'text-vanilla'    },
+            { label: 'Followers',     value: followers.toLocaleString(),    icon: Users,         color: 'text-strawberry' },
+            { label: 'Likes (7d)',    value: totalLikes.toLocaleString(),   icon: Heart,         color: 'text-blueberry'  },
+            { label: 'Comments (7d)', value: totalComments.toLocaleString(), icon: MessageCircle, color: 'text-mint'      },
+            { label: 'Reach (7d)',    value: totalReach.toLocaleString(),   icon: Share2,        color: 'text-vanilla'    },
           ].map((stat) => {
             const Icon = stat.icon
             return (
@@ -78,7 +104,7 @@ export default function SocialPage() {
           })}
         </motion.div>
 
-        {/* Engagement Line Chart */}
+        {/* Engagement Line Chart — always demo (no per-day engagement breakdown in DB) */}
         <ChartWrapper
           title="Engagement Trends"
           subtitle="Likes, comments & shares over 14 days"
@@ -91,7 +117,7 @@ export default function SocialPage() {
           ]}
         >
           <LineChartBranded
-            data={SOCIAL_DATA}
+            data={DEMO_SOCIAL_DATA}
             series={[
               { dataKey: 'likes',    label: 'Likes',    color: chartColors.strawberry },
               { dataKey: 'comments', label: 'Comments', color: chartColors.blueberry  },
@@ -110,13 +136,13 @@ export default function SocialPage() {
           {/* Follower Growth Area Chart */}
           <ChartWrapper
             title="Follower Growth"
-            subtitle="Cumulative followers over 12 weeks"
+            subtitle={isDemo ? 'Cumulative followers over 12 weeks' : 'Cumulative followers — 14 days'}
             variant="blueberry"
-            badge={<SampleBadge />}
+            badge={isDemo ? <SampleBadge /> : undefined}
             legend={[{ label: 'Followers', color: chartColors.blueberry }]}
           >
             <AreaChartBranded
-              data={FOLLOWER_DATA}
+              data={followerData}
               series={[
                 { dataKey: 'followers', label: 'Followers', color: chartColors.blueberry },
               ]}
@@ -132,10 +158,10 @@ export default function SocialPage() {
             title="Post Performance"
             subtitle="Engagement per post"
             variant="mint"
-            badge={<SampleBadge />}
+            badge={isDemo ? <SampleBadge /> : undefined}
           >
             <BarChartBranded
-              data={postPerformance}
+              data={postPerf}
               dataKey="engagement"
               label="Engagement"
               xKey="label"
@@ -153,19 +179,21 @@ export default function SocialPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Instagram className="w-4 h-4 text-strawberry" />
-                  <CardTitle className="text-sm font-nunito font-semibold">Weekly New Followers</CardTitle>
+                  <CardTitle className="text-sm font-nunito font-semibold">
+                    {isDemo ? 'Weekly New Followers' : 'Recent Follower Growth'}
+                  </CardTitle>
                 </div>
-                <SampleBadge />
+                {isDemo && <SampleBadge />}
               </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-4 py-2 border-b border-border text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[320px]">
-                  <span>Week</span>
+                  <span>Date</span>
                   <span className="text-right">New Followers</span>
                   <span className="text-right">Total</span>
                 </div>
-                {FOLLOWER_DATA.slice(-6).map((row) => (
+                {(isDemo ? DEMO_FOLLOWER_DATA.slice(-6) : followerData.slice(-6)).map((row) => (
                   <div
                     key={row.date}
                     className="grid grid-cols-[1fr_auto_auto] gap-4 px-4 py-3 border-b border-border last:border-0 hover:bg-card-hover transition-colors min-w-[320px]"
