@@ -11,6 +11,11 @@ export const maxDuration = 300 // 5 min max for Vercel Pro
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 function verifyCronSecret(request: NextRequest): boolean {
+  // Vercel Cron automatically sends this header
+  const vercelCronHeader = request.headers.get('x-vercel-cron')
+  if (vercelCronHeader) return true
+
+  // Manual trigger via CRON_SECRET bearer token
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) {
@@ -18,6 +23,33 @@ function verifyCronSecret(request: NextRequest): boolean {
     return process.env.NODE_ENV === 'development'
   }
   return secret === cronSecret
+}
+
+// ─── Retry Helper ────────────────────────────────────────────────────────────
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries: number = 2,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      const isRateLimit = lastError.message.includes('429') || lastError.message.includes('quota')
+      if (attempt < maxRetries) {
+        const delay = isRateLimit
+          ? baseDelayMs * Math.pow(3, attempt) // aggressive backoff for rate limits
+          : baseDelayMs * Math.pow(2, attempt)
+        console.warn(`[sync] ${label}: attempt ${attempt + 1} failed, retrying in ${delay}ms...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+  throw lastError
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -520,16 +552,28 @@ export async function GET(request: NextRequest) {
     if (org.googleToken) {
       const token = org.googleToken.accessToken
 
-      result.google.seo = await syncSearchConsole(org.orgId, org.orgName, token, supabase)
+      result.google.seo = await withRetry(
+        () => syncSearchConsole(org.orgId, org.orgName, token, supabase),
+        `${org.orgName}/SEO`
+      ).catch(() => false)
       if (!result.google.seo) result.errors.push('SEO sync failed')
 
-      result.google.gbp = await syncBusinessProfile(org.orgId, org.orgName, token, supabase)
+      result.google.gbp = await withRetry(
+        () => syncBusinessProfile(org.orgId, org.orgName, token, supabase),
+        `${org.orgName}/GBP`
+      ).catch(() => false)
       if (!result.google.gbp) result.errors.push('GBP sync failed')
 
-      result.google.analytics = await syncAnalytics(org.orgId, org.orgName, token, supabase)
+      result.google.analytics = await withRetry(
+        () => syncAnalytics(org.orgId, org.orgName, token, supabase),
+        `${org.orgName}/Analytics`
+      ).catch(() => false)
       if (!result.google.analytics) result.errors.push('Analytics sync failed')
 
-      result.google.ads = await syncAds(org.orgId, org.orgName, token, supabase)
+      result.google.ads = await withRetry(
+        () => syncAds(org.orgId, org.orgName, token, supabase),
+        `${org.orgName}/Ads`
+      ).catch(() => false)
       // Ads failure is common (no developer token or no ads account) — don't count as error
     }
 
