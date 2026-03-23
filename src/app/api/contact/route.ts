@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
   // Get client email for notification
   const { data: bp } = await supabase
     .from('business_profiles')
-    .select('email, business_name, phone as biz_phone')
+    .select('email, business_name, phone')
     .eq('org_id', orgId)
     .single()
 

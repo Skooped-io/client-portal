@@ -1,47 +1,50 @@
 import type { Metadata } from 'next'
-import { getSocialOverview } from '@/lib/data/social'
+import { createClient } from '@/lib/supabase/server'
+import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import SocialPage from './social-client'
 import type { SocialPageData } from './social-client'
 
 export const metadata: Metadata = { title: 'Social' }
 export const revalidate = 300
 
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 export default async function SocialServerPage() {
-  const { instagram, instagramTrend, hasData } = await getSocialOverview(14)
+  const supabase = await createClient()
+  const orgId = await getCurrentOrgId(supabase)
 
-  if (!hasData || !instagram) return <SocialPage />
+  if (!orgId) return <SocialPage />
 
-  // Compute follower gains from trend (diff between consecutive rows)
-  const followerData = instagramTrend.map((row, i) => {
-    const prev = instagramTrend[i - 1]
-    const gained = prev ? Math.max(0, row.followers - prev.followers) : 0
-    return { date: fmtDate(row.date), followers: row.followers, gained }
-  })
+  const { data: rows } = await supabase
+    .from('social_metrics')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('date', { ascending: false })
+    .limit(28)
 
-  // Post performance from latest snapshot's top_posts
-  const postPerformance = (instagram.top_posts ?? []).map((p) => ({
-    label: p.caption.length > 20 ? p.caption.slice(0, 20) + '…' : p.caption,
-    engagement: p.likes + p.comments + p.shares,
-  }))
+  if (!rows || rows.length === 0) return <SocialPage />
 
-  // Summary: sum likes/comments/reach across all trend rows
-  const totalLikes    = instagramTrend.reduce((a, r) => a + (r.top_posts ?? []).reduce((s, p) => s + p.likes, 0), 0)
-  const totalComments = instagramTrend.reduce((a, r) => a + (r.top_posts ?? []).reduce((s, p) => s + p.comments, 0), 0)
-  const totalReach    = instagramTrend.reduce((a, r) => a + r.reach, 0)
+  const igRows = rows.filter(r => r.platform === 'instagram')
+  const latest = igRows[0]
+  const trend = [...igRows].reverse()
+
+  const totalReach = igRows.reduce((sum, r) => sum + (r.reach ?? 0), 0)
+  const topPosts = (latest?.top_posts as Array<{ caption?: string; likes?: number; comments?: number }>) ?? []
 
   const data: SocialPageData = {
     summary: {
-      followers: instagram.followers,
-      likes:     totalLikes,
-      comments:  totalComments,
-      reach:     totalReach,
+      followers: latest?.followers ?? 0,
+      likes: topPosts.reduce((sum, p) => sum + (p.likes ?? 0), 0),
+      comments: topPosts.reduce((sum, p) => sum + (p.comments ?? 0), 0),
+      reach: totalReach,
     },
-    followerData,
-    postPerformance,
+    followerData: trend.map(r => ({
+      date: new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      followers: r.followers ?? 0,
+      gained: 0, // TODO: calculate delta from previous day
+    })),
+    postPerformance: topPosts.slice(0, 5).map((p, i) => ({
+      label: (p.caption ?? `Post ${i + 1}`).slice(0, 30),
+      engagement: (p.likes ?? 0) + (p.comments ?? 0),
+    })),
   }
 
   return <SocialPage data={data} />
