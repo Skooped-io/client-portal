@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/shared/empty-state'
+import { RedeployButton } from './redeploy-button'
 
 export const metadata: Metadata = {
   title: 'Website',
@@ -104,6 +105,7 @@ export default async function WebsitePage() {
             Monitor your website health, manage content, and track deployments.
           </p>
         </div>
+        {status === 'live' && <RedeployButton />}
       </div>
 
       {/* Site Overview Card */}
