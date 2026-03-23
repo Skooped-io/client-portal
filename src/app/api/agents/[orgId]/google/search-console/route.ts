@@ -137,7 +137,8 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
         { error: 'Insufficient permissions for Search Console' },
         { status: 403 }
       )
-    console.error('[search-console] API error', err)
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[search-console] API error', message)
     return NextResponse.json({ error: 'Search Console API error' }, { status: 500 })
   }
 }

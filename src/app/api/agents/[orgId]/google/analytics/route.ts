@@ -140,7 +140,7 @@ export async function GET(request: NextRequest, { params }: AgentParams) {
         { error: 'Insufficient permissions for Analytics' },
         { status: 403 }
       )
-    console.error('[analytics] GA4 API error', err)
+    const message = err instanceof Error ? err.message : 'Unknown error'; console.error('[analytics] GA4 API error', message)
     return NextResponse.json({ error: 'Analytics API error' }, { status: 500 })
   }
 }
