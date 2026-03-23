@@ -50,6 +50,29 @@ interface MonthReport {
   highlights: string[]
 }
 
+// Serializable versions (no icon refs) — passed from server
+export interface SerializableMetric {
+  label: string
+  value: number
+  prevValue: number
+  prefix?: string
+  suffix?: string
+  decimals?: number
+  formatNumber?: boolean
+}
+
+export interface SerializableReport {
+  id: string
+  month: string
+  dateGenerated: string
+  metrics: SerializableMetric[]
+  highlights: string[]
+}
+
+export interface ReportsPageData {
+  reports: SerializableReport[]
+}
+
 // ===== Demo Data =====
 
 const DEMO_REPORTS: MonthReport[] = [
@@ -490,9 +513,36 @@ function ReportsArchive({ reports, onView }: { reports: MonthReport[]; onView: (
   )
 }
 
+// ===== Icon lookup for real data =====
+
+const METRIC_ICONS: Record<string, React.ElementType> = {
+  'Website Traffic': TrendingUp,
+  'Website Visits':  TrendingUp,
+  'Organic Clicks':  Search,
+  'Google Ranking':  Search,
+  'Total Leads':     Users,
+  'Phone Calls':     Megaphone,
+  'Ad Spend ROI':    Megaphone,
+}
+
+function hydrateReport(r: SerializableReport): MonthReport {
+  return {
+    ...r,
+    pageCount: 10,
+    fileSize: '2.0 MB',
+    metrics: r.metrics.map((m) => ({
+      ...m,
+      icon: METRIC_ICONS[m.label] ?? TrendingUp,
+    })),
+  }
+}
+
 // ===== Main Page =====
 
-export default function ReportsPage() {
+export default function ReportsPage({ data }: { data?: ReportsPageData } = {}) {
+  const isDemo = !data
+  const reports = isDemo ? DEMO_REPORTS : data.reports.map(hydrateReport)
+
   const [isLoading] = useState(false)
   const [activeReport, setActiveReport] = useState<MonthReport | null>(null)
 
@@ -549,10 +599,12 @@ export default function ReportsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
+          {reports.length >= 2 && (
           <MoMComparison
-            current={DEMO_REPORTS[0]}
-            previous={DEMO_REPORTS[1]}
+            current={reports[0]}
+            previous={reports[1]}
           />
+        )}
         </motion.div>
 
         {/* Report Cards Grid */}
@@ -566,7 +618,7 @@ export default function ReportsPage() {
           animate="visible"
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"
         >
-          {DEMO_REPORTS.map((report, i) => (
+          {reports.map((report, i) => (
             <ReportCard
               key={report.id}
               report={report}
@@ -582,7 +634,7 @@ export default function ReportsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <ReportsArchive reports={DEMO_REPORTS} onView={setActiveReport} />
+          <ReportsArchive reports={reports} onView={setActiveReport} />
         </motion.div>
       </div>
 
