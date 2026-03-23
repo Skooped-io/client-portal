@@ -56,7 +56,7 @@ async function syncSearchConsole(
     let targetSite = siteUrl
     if (!targetSite) {
       const sites = await sc.sites.list()
-      targetSite = sites.data.siteEntry?.[0]?.siteUrl
+      targetSite = sites.data.siteEntry?.[0]?.siteUrl ?? undefined
       if (!targetSite) {
         console.log(`[sync] ${orgName}: No Search Console sites found`)
         return false
@@ -275,7 +275,7 @@ async function syncAnalytics(
 
     const analyticsdata = google.analyticsdata({ version: 'v1beta', auth })
     const res = await analyticsdata.properties.runReport({
-      property: property.name,
+      property: property.name!,
       requestBody: {
         dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
         metrics: [
@@ -287,7 +287,7 @@ async function syncAnalytics(
         ],
         dimensions: [{ name: 'date' }],
         orderBys: [{ dimension: { dimensionName: 'date' }, desc: true }],
-        limit: 30,
+        limit: '30',
       },
     })
 

@@ -1,6 +1,7 @@
 import { ArrowRight, BarChart2, Calendar, PieChart, Target, Zap } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,7 +13,7 @@ import { AgentActivityFeed } from '@/components/dashboard/AgentActivityFeed'
 import { AIInsightsPanel } from '@/components/dashboard/AIInsightsPanel'
 import { DashboardTourWrapper } from '@/components/dashboard/DashboardTourWrapper'
 import { DonutChartBranded, ProgressRing } from '@/components/charts'
-import { trafficSources, seoHealthScore } from '@/lib/chart-demo-data'
+import { trafficSources as demoTrafficSources, seoHealthScore as demoSeoHealthScore } from '@/lib/chart-demo-data'
 import { DashboardClientWrapper } from './dashboard-client-wrapper'
 
 // ===== Skeleton fallbacks =====
@@ -70,6 +71,8 @@ async function DashboardData() {
     data: { user },
   } = await supabase.auth.getUser()
 
+  const orgId = await getCurrentOrgId(supabase)
+
   const [profileResult] = await Promise.all([
     supabase
       .from('profiles')
@@ -89,48 +92,117 @@ async function DashboardData() {
     day: 'numeric',
   })
 
-  return { firstName, dateString }
-}
+  // ── Fetch real metrics (graceful fallback to null if tables don't exist yet) ──
 
-async function WelcomeHeader() {
-  const { firstName, dateString } = await DashboardData()
+  let seoLatest = null
+  let seoTrend: Array<{ date: string; total_clicks: number; total_impressions: number }> = []
+  let analyticsLatest = null
+  let adsLatest = null
+  let gbpLatest = null
+  let trafficSources = demoTrafficSources
+  let seoHealthScore = demoSeoHealthScore
+  let hasRealData = false
 
-  return (
-    <div className="flex items-start justify-between mb-4 md:mb-6 gap-3">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">
-          Welcome back, {firstName} 👋
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">{dateString}</p>
-      </div>
-      <DashboardTourWrapper className="mt-1 shrink-0" />
-    </div>
-  )
+  if (orgId) {
+    const [seoRes, seoTrendRes, analyticsRes, adsRes, gbpRes] = await Promise.all([
+      supabase.from('seo_metrics').select('*').eq('org_id', orgId).order('date', { ascending: false }).limit(1).single(),
+      supabase.from('seo_metrics').select('date, total_clicks, total_impressions').eq('org_id', orgId).order('date', { ascending: false }).limit(30),
+      supabase.from('analytics_metrics').select('*').eq('org_id', orgId).order('date', { ascending: false }).limit(1).single(),
+      supabase.from('ads_metrics').select('*').eq('org_id', orgId).order('date', { ascending: false }).limit(1).single(),
+      supabase.from('gbp_metrics').select('*').eq('org_id', orgId).order('date', { ascending: false }).limit(1).single(),
+    ])
+
+    seoLatest = seoRes.data
+    seoTrend = (seoTrendRes.data ?? []).reverse()
+    analyticsLatest = analyticsRes.data
+    adsLatest = adsRes.data
+    gbpLatest = gbpRes.data
+
+    if (seoLatest || analyticsLatest) hasRealData = true
+
+    // Build traffic sources from analytics if available
+    if (analyticsLatest?.traffic_sources && Array.isArray(analyticsLatest.traffic_sources) && analyticsLatest.traffic_sources.length > 0) {
+      const colors = ['#D94A7A', '#5B8DEF', '#4CAF50', '#C99035', '#9b87f5']
+      trafficSources = (analyticsLatest.traffic_sources as Array<{ source: string; sessions: number; percentage: number }>).slice(0, 5).map((s, i) => ({
+        name: s.source,
+        value: Math.round(s.percentage),
+        color: colors[i % colors.length],
+      }))
+    }
+
+    // Calculate SEO health from real data
+    if (seoLatest) {
+      const ctrScore = Math.min(100, (seoLatest.avg_ctr ?? 0) * 2000) // 5% CTR = 100
+      const positionScore = Math.max(0, 100 - ((seoLatest.avg_position ?? 50) - 1) * 5) // position 1 = 100, position 20 = 5
+      seoHealthScore = Math.round((ctrScore + positionScore) / 2)
+    }
+  }
+
+  // Build MetricCardsRow data
+  const metricCardsData = hasRealData ? {
+    totalLeads: gbpLatest?.phone_calls ?? 0,
+    websiteTraffic: analyticsLatest?.sessions ?? seoLatest?.total_clicks ?? 0,
+    googleRanking: Math.round(seoLatest?.avg_position ?? 0),
+    adSpend: adsLatest?.total_spend ?? 0,
+    adROI: adsLatest?.total_clicks && adsLatest?.total_spend
+      ? Math.round((adsLatest.total_clicks / adsLatest.total_spend) * 10) / 10
+      : 0,
+    leadsTrend: 0, // TODO: calculate from previous period
+    trafficTrend: 0,
+    rankingTrend: 0,
+    adTrend: 0,
+  } : undefined
+
+  // Build TrafficChart data
+  const trafficChartData = seoTrend.length > 0
+    ? seoTrend.map(row => ({
+        date: new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        traffic: row.total_clicks,
+        impressions: row.total_impressions,
+      }))
+    : undefined
+
+  return {
+    firstName,
+    dateString,
+    metricCardsData,
+    trafficChartData,
+    trafficSources,
+    seoHealthScore,
+    hasRealData,
+  }
 }
 
 // ===== Main page =====
 
 export default async function DashboardPage() {
+  const {
+    firstName,
+    dateString,
+    metricCardsData,
+    trafficChartData,
+    trafficSources,
+    seoHealthScore,
+    hasRealData,
+  } = await DashboardData()
+
   return (
     <DashboardClientWrapper>
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-4 md:space-y-6 lg:space-y-8">
 
       {/* Welcome header */}
-      <Suspense
-        fallback={
-          <div className="mb-6 space-y-2">
-            <Skeleton className="h-8 w-56" />
-            <Skeleton className="h-4 w-40" />
-          </div>
-        }
-      >
-        <WelcomeHeader />
-      </Suspense>
+      <div className="flex items-start justify-between mb-4 md:mb-6 gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-nunito font-bold text-foreground">
+            Welcome back, {firstName} 👋
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">{dateString}</p>
+        </div>
+        <DashboardTourWrapper className="mt-1 shrink-0" />
+      </div>
 
       {/* Metric Cards */}
-      <Suspense fallback={<MetricsSkeleton />}>
-        <MetricCardsRow />
-      </Suspense>
+      <MetricCardsRow data={metricCardsData} />
 
       {/* Charts + AI Insights */}
       <div id="dashboard-chart-section" className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
@@ -147,9 +219,7 @@ export default async function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="pt-2">
-              <Suspense fallback={<Skeleton className="h-64 w-full rounded-lg" />}>
-                <TrafficChart />
-              </Suspense>
+              <TrafficChart data={trafficChartData} isDemo={!hasRealData} />
             </CardContent>
           </Card>
         </div>
