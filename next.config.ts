@@ -35,7 +35,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://sentry.io https://api.axiom.co",
+              "connect-src 'self' https://*.supabase.co https://sentry.io https://api.axiom.co https://api.stripe.com",
               "frame-ancestors 'none'",
             ].join("; "),
           },
