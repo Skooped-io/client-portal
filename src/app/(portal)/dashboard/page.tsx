@@ -13,6 +13,7 @@ import { AIInsightsPanel } from '@/components/dashboard/AIInsightsPanel'
 import { DashboardTourWrapper } from '@/components/dashboard/DashboardTourWrapper'
 import { DonutChartBranded, ProgressRing } from '@/components/charts'
 import { trafficSources, seoHealthScore } from '@/lib/chart-demo-data'
+import { DashboardClientWrapper } from './dashboard-client-wrapper'
 
 // ===== Skeleton fallbacks =====
 
@@ -111,6 +112,7 @@ async function WelcomeHeader() {
 
 export default async function DashboardPage() {
   return (
+    <DashboardClientWrapper>
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-4 md:space-y-6 lg:space-y-8">
 
       {/* Welcome header */}
@@ -348,5 +350,6 @@ export default async function DashboardPage() {
         </div>
       </div>
     </div>
+    </DashboardClientWrapper>
   )
 }
