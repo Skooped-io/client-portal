@@ -94,8 +94,35 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
 
   if (upsertError) {
     console.error('[stripe/webhook] Failed to upsert subscription', upsertError)
-  } else {
-    console.log('[stripe/webhook] Subscription created for user', userId)
+    return // Don't trigger deploy if subscription save failed
+  }
+
+  console.log('[stripe/webhook] Subscription created for user', userId)
+
+  // ── Trigger deploy pipeline on Render ─────────────────────────────
+  // Fire-and-forget: Render returns 202 immediately and deploys async.
+  // The deploy server handles: welcome email → Slack notify → site deploy → site-live email.
+  const deployUrl = process.env.DEPLOY_SERVER_URL ?? 'https://skooped-deploy.onrender.com'
+  const deploySecret = process.env.DEPLOY_SERVER_SECRET
+
+  try {
+    const deployRes = await fetch(`${deployUrl}/deploy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(deploySecret ? { Authorization: `Bearer ${deploySecret}` } : {}),
+      },
+      body: JSON.stringify({ userId }),
+    })
+
+    if (deployRes.ok) {
+      console.log('[stripe/webhook] Deploy pipeline triggered for user', userId)
+    } else {
+      console.error('[stripe/webhook] Deploy trigger failed:', deployRes.status, await deployRes.text())
+    }
+  } catch (err: unknown) {
+    // Non-fatal: subscription is saved, deploy can be retried manually
+    console.error('[stripe/webhook] Deploy trigger error (non-fatal):', err)
   }
 }
 
