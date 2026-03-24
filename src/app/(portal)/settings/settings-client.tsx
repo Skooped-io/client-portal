@@ -270,11 +270,29 @@ function AccountTab({ profile }: { profile: SettingsProfile }) {
             <CardTitle className="text-base font-nunito">Change Password</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); toast.success('Password updated') }}>
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault()
+              const formEl = e.currentTarget
+              const currentPw = (formEl.elements.namedItem('currentPassword') as HTMLInputElement)?.value
+              const newPw = (formEl.elements.namedItem('newPassword') as HTMLInputElement)?.value
+              if (!newPw || newPw.length < 8) { toast.error('New password must be at least 8 characters'); return }
+              try {
+                const { createBrowserClient } = await import('@supabase/ssr')
+                const supabase = createBrowserClient(
+                  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+                )
+                const { error } = await supabase.auth.updateUser({ password: newPw })
+                if (error) { toast.error(error.message); return }
+                toast.success('Password updated!')
+                formEl.reset()
+              } catch { toast.error('Failed to update password') }
+            }}>
               <div className="space-y-2">
                 <Label className="text-sm font-dm-sans">Current Password</Label>
                 <div className="relative">
                   <Input
+                    name="currentPassword"
                     type={showCurrentPw ? 'text' : 'password'}
                     placeholder="Enter current password"
                     className="bg-background border-border rounded-xl pr-10 focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
@@ -293,6 +311,7 @@ function AccountTab({ profile }: { profile: SettingsProfile }) {
                 <Label className="text-sm font-dm-sans">New Password</Label>
                 <div className="relative">
                   <Input
+                    name="newPassword"
                     type={showNewPw ? 'text' : 'password'}
                     placeholder="At least 8 characters"
                     className="bg-background border-border rounded-xl pr-10 focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
