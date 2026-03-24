@@ -19,6 +19,8 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [industry, setIndustry] = useState(businessProfile?.industry ?? '')
+  const [customIndustry, setCustomIndustry] = useState('')
+  const isOther = industry === 'Other'
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -27,7 +29,7 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
     const formData = new FormData(e.currentTarget)
     const result = await saveStep1Action({
       business_name: formData.get('business_name') as string,
-      industry: industry || undefined,
+      industry: (isOther && customIndustry.trim()) ? customIndustry.trim() : industry || undefined,
       phone: formData.get('phone') as string || undefined,
       email: formData.get('email') as string || undefined,
       website_url: formData.get('website_url') as string || undefined,
@@ -77,6 +79,14 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
               ))}
             </SelectContent>
           </Select>
+          {isOther && (
+            <Input
+              value={customIndustry}
+              onChange={(e) => setCustomIndustry(e.target.value)}
+              placeholder="Enter your industry"
+              className="mt-2 bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            />
+          )}
         </div>
 
         <div className="space-y-2">
@@ -89,6 +99,14 @@ export function BusinessBasicsStep({ businessProfile }: BusinessBasicsStepProps)
             type="tel"
             defaultValue={businessProfile?.phone ?? ''}
             placeholder="(615) 555-1234"
+            maxLength={14}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+              if (digits.length === 0) { e.target.value = ''; return }
+              if (digits.length <= 3) { e.target.value = `(${digits}`; return }
+              if (digits.length <= 6) { e.target.value = `(${digits.slice(0,3)}) ${digits.slice(3)}`; return }
+              e.target.value = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`
+            }}
             className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
           />
         </div>

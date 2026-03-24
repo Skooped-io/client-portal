@@ -152,7 +152,7 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
               <Badge
                 key={area}
                 variant="secondary"
-                className="bg-vanilla/20 text-chocolate border-0 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
+                className="bg-strawberry/10 text-strawberry border border-strawberry/20 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
               >
                 {area}
                 <button

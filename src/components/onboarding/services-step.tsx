@@ -12,23 +12,30 @@ import { Badge } from '@/components/ui/badge'
 import { saveStep3Action } from '@/app/(onboarding)/onboarding/actions'
 import type { BusinessProfile } from '@/lib/types'
 
-const COMMON_SERVICES = [
-  'Fence Installation',
-  'Fence Repair',
-  'Landscaping',
-  'Lawn Care',
-  'HVAC',
-  'Plumbing',
-  'Electrical',
-  'Roofing',
-  'Painting',
-  'Flooring',
-  'Cleaning',
-  'Pressure Washing',
-  'Tree Service',
-  'Pest Control',
-  'Windows & Doors',
+const INDUSTRY_SERVICES: Record<string, string[]> = {
+  Roofing: ['Roof Installation', 'Roof Repair', 'Roof Inspection', 'Emergency Repair', 'Metal Roofing', 'Shingle Replacement', 'Gutter Installation', 'Flat Roof Repair', 'Storm Damage Repair', 'Commercial Roofing'],
+  Landscaping: ['Lawn Care', 'Landscape Design', 'Tree Trimming', 'Mulching', 'Irrigation', 'Sod Installation', 'Leaf Removal', 'Hardscaping', 'Garden Design', 'Hedge Trimming'],
+  Fencing: ['Fence Installation', 'Fence Repair', 'Wood Fencing', 'Vinyl Fencing', 'Chain Link', 'Aluminum Fencing', 'Gate Installation', 'Privacy Fencing', 'Commercial Fencing', 'Fence Staining'],
+  Therapy: ['Individual Therapy', 'Couples Therapy', 'Family Therapy', 'Anxiety Treatment', 'Depression Treatment', 'Trauma Therapy', 'EMDR', 'CBT', 'Group Therapy', 'Online Therapy'],
+  Construction: ['General Contracting', 'Home Remodeling', 'Kitchen Remodel', 'Bathroom Remodel', 'Additions', 'Deck Building', 'Concrete Work', 'Framing', 'Drywall', 'Demolition'],
+  'Auto Repair': ['Oil Change', 'Brake Repair', 'Engine Repair', 'Transmission', 'AC Repair', 'Tire Services', 'Diagnostics', 'Electrical', 'Suspension', 'Exhaust Repair'],
+  'Life Coaching': ['Career Coaching', 'Executive Coaching', 'Mindset Coaching', 'Goal Setting', 'Accountability', 'Transition Coaching', 'Wellness Coaching', 'Leadership', 'Confidence Building', 'Work-Life Balance'],
+  'Real Estate': ['Buyer Representation', 'Seller Representation', 'Market Analysis', 'Home Staging', 'Investment Properties', 'First-Time Buyers', 'Luxury Homes', 'Commercial Real Estate', 'Relocation', 'Property Management'],
+  'Personal Training': ['Weight Loss', 'Strength Training', 'HIIT', 'Yoga', 'Nutrition Coaching', 'Group Classes', 'Online Training', 'Sports Performance', 'Senior Fitness', 'Post-Rehab'],
+  Salon: ['Haircuts', 'Hair Coloring', 'Balayage', 'Keratin Treatment', 'Blowouts', 'Bridal Hair', 'Beard Trim', 'Waxing', 'Facials', 'Nail Services'],
+  Plumbing: ['Drain Cleaning', 'Leak Repair', 'Water Heater', 'Pipe Repair', 'Toilet Repair', 'Faucet Install', 'Sewer Line', 'Gas Line', 'Garbage Disposal', 'Emergency Plumbing'],
+  Electrical: ['Wiring', 'Panel Upgrade', 'Outlet Install', 'Lighting', 'Ceiling Fan', 'Generator Install', 'EV Charger', 'Smart Home', 'Troubleshooting', 'Emergency Electrical'],
+}
+
+const DEFAULT_SERVICES = [
+  'Consultation', 'Installation', 'Repair', 'Maintenance',
+  'Emergency Service', 'Custom Work', 'Inspection', 'Estimate',
 ]
+
+function getServicesForIndustry(industry: string | null | undefined): string[] {
+  if (!industry) return DEFAULT_SERVICES
+  return INDUSTRY_SERVICES[industry] ?? DEFAULT_SERVICES
+}
 
 interface ServicesStepProps {
   businessProfile: BusinessProfile | null
@@ -39,6 +46,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [services, setServices] = useState<string[]>(businessProfile?.services ?? [])
+  const industryServices = getServicesForIndustry(businessProfile?.industry)
   const [customInput, setCustomInput] = useState('')
   const [charCount, setCharCount] = useState(businessProfile?.description?.length ?? 0)
 
@@ -92,7 +100,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
           What services do you offer?
         </Label>
         <div className="flex flex-wrap gap-2">
-          {COMMON_SERVICES.map((service) => {
+          {industryServices.map((service) => {
             const isSelected = services.includes(service)
             return (
               <button
@@ -103,7 +111,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
                   'px-3 py-1.5 rounded-full text-xs font-dm-sans font-medium transition-colors border',
                   isSelected
                     ? 'bg-strawberry text-white border-strawberry'
-                    : 'bg-background text-muted-foreground border-border hover:border-strawberry hover:text-strawberry',
+                    : 'bg-muted/80 text-foreground border-border/80 hover:border-strawberry hover:text-strawberry',
                 ].join(' ')}
               >
                 {service}
@@ -130,10 +138,10 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
           </Button>
         </div>
 
-        {services.some((s) => !COMMON_SERVICES.includes(s)) && (
+        {services.some((s) => !industryServices.includes(s)) && (
           <div className="flex flex-wrap gap-2">
             {services
-              .filter((s) => !COMMON_SERVICES.includes(s))
+              .filter((s) => !industryServices.includes(s))
               .map((service) => (
                 <Badge
                   key={service}

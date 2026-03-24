@@ -63,13 +63,14 @@ export function PlanSelectionStep({ businessProfile, onBack }: PlanSelectionStep
   async function onStartTrial() {
     setIsSubmitting(true)
     try {
-      await completeOnboardingAction()
-
       if (isConcierge) {
+        await completeOnboardingAction()
         router.push('/dashboard')
         return
       }
 
+      // Redirect to Stripe FIRST — complete onboarding on success callback
+      // This prevents the dashboard from flashing before Stripe loads
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +84,8 @@ export function PlanSelectionStep({ businessProfile, onBack }: PlanSelectionStep
 
       const { url } = await res.json() as { url: string }
       if (url) {
+        // Complete onboarding right before redirect so there's no flash
+        await completeOnboardingAction()
         window.location.href = url
       } else {
         throw new Error('No checkout URL returned')
