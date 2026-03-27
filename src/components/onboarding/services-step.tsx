@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { X, Plus } from 'lucide-react'
@@ -48,6 +48,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
   const [services, setServices] = useState<string[]>(businessProfile?.services ?? [])
   const industryServices = getServicesForIndustry(businessProfile?.industry)
   const [customInput, setCustomInput] = useState('')
+  const customInputRef = useRef<HTMLInputElement>(null)
   const [charCount, setCharCount] = useState(businessProfile?.description?.length ?? 0)
 
   function toggleService(service: string) {
@@ -62,6 +63,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
       setServices((prev) => [...prev, trimmed])
     }
     setCustomInput('')
+    setTimeout(() => customInputRef.current?.focus(), 0)
   }
 
   function removeService(service: string) {
@@ -122,6 +124,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
 
         <div className="flex gap-2">
           <Input
+            ref={customInputRef}
             value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
             onKeyDown={onCustomKeyDown}
