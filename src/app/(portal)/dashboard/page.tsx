@@ -1,3 +1,5 @@
+export const revalidate = 300
+
 import { ArrowRight, BarChart2, Calendar, PieChart, Target, Zap } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
