@@ -1,12 +1,19 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import type { DriveStep } from 'driver.js'
 
 const TOUR_KEY = 'skooped-dashboard-tour-v1'
 
-export function useDashboardTour() {
+export function useDashboardTour(isReady: boolean = true) {
+  const [showMobileWelcome, setShowMobileWelcome] = useState(false)
+
   const startTour = useCallback(async () => {
+    // On mobile, show welcome card instead of driver.js overlay
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setShowMobileWelcome(true)
+      return
+    }
     // Dynamic import so driver.js only loads client-side
     const { driver } = await import('driver.js')
 
@@ -104,19 +111,25 @@ export function useDashboardTour() {
     driverObj.drive()
   }, [])
 
-  // Auto-start only on first visit
+  // Auto-start only on first visit, AFTER isReady is true
   useEffect(() => {
+    if (!isReady) return
     const tourStatus = localStorage.getItem(TOUR_KEY)
     if (!tourStatus) {
       const timer = setTimeout(() => startTour(), 1800)
       return () => clearTimeout(timer)
     }
-  }, [startTour])
+  }, [startTour, isReady])
+
+  const dismissMobileWelcome = useCallback(() => {
+    localStorage.setItem(TOUR_KEY, 'completed')
+    setShowMobileWelcome(false)
+  }, [])
 
   const resetTour = useCallback(() => {
     localStorage.removeItem(TOUR_KEY)
     startTour()
   }, [startTour])
 
-  return { startTour, resetTour }
+  return { startTour, resetTour, showMobileWelcome, dismissMobileWelcome }
 }
