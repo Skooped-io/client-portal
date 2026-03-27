@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import Script from 'next/script'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { X, Plus } from 'lucide-react'
@@ -9,7 +10,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { saveStep2Action } from '@/app/(onboarding)/onboarding/actions'
+import { useGooglePlacesAutocomplete } from '@/hooks/useGooglePlacesAutocomplete'
 import type { BusinessProfile } from '@/lib/types'
+
+const MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
 interface LocationStepProps {
   businessProfile: BusinessProfile | null
@@ -23,6 +27,30 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
     businessProfile?.service_areas ?? []
   )
   const [areaInput, setAreaInput] = useState('')
+
+  // Controlled address fields so autocomplete can fill them
+  const [streetAddress, setStreetAddress] = useState('')
+  const [city, setCity] = useState(businessProfile?.city ?? '')
+  const [state, setState] = useState(businessProfile?.state ?? '')
+  const [zip, setZip] = useState('')
+
+  const streetRef = useRef<HTMLInputElement>(null)
+
+  const handlePlaceSelect = useCallback(
+    (components: { streetAddress: string; city: string; state: string; zip: string }) => {
+      setStreetAddress(components.streetAddress)
+      setCity(components.city)
+      setState(components.state)
+      setZip(components.zip)
+    },
+    [],
+  )
+
+  useGooglePlacesAutocomplete({
+    inputRef: streetRef,
+    onSelect: handlePlaceSelect,
+    enabled: !!MAPS_API_KEY,
+  })
 
   function addArea() {
     const trimmed = areaInput.trim()
@@ -47,12 +75,11 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
     e.preventDefault()
     setIsSubmitting(true)
 
-    const formData = new FormData(e.currentTarget)
     const result = await saveStep2Action({
-      street_address: formData.get('street_address') as string || undefined,
-      city: formData.get('city') as string || undefined,
-      state: formData.get('state') as string || undefined,
-      zip: formData.get('zip') as string || undefined,
+      street_address: streetAddress || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      zip: zip || undefined,
       service_areas: serviceAreas,
     })
 
@@ -65,127 +92,169 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      <div className="space-y-2">
-        <Label htmlFor="street_address" className="text-sm font-dm-sans text-foreground">
-          Street Address
-        </Label>
-        <Input
-          id="street_address"
-          name="street_address"
-          defaultValue=""
-          placeholder="123 Main St"
-          className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+    <>
+      {MAPS_API_KEY && (
+        <Script
+          src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_API_KEY}&libraries=places`}
+          strategy="lazyOnload"
         />
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="space-y-2 sm:col-span-1">
-          <Label htmlFor="city" className="text-sm font-dm-sans text-foreground">
-            City
+      {/* Autocomplete dropdown styles */}
+      <style>{`
+        .pac-container {
+          border-radius: 12px;
+          border: 1px solid hsl(var(--border));
+          box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+          font-family: var(--font-dm-sans), sans-serif;
+          font-size: 14px;
+          margin-top: 4px;
+        }
+        .pac-item {
+          padding: 8px 12px;
+          cursor: pointer;
+          color: hsl(var(--foreground));
+        }
+        .pac-item:hover, .pac-item-selected {
+          background: hsl(var(--muted));
+        }
+        .pac-item-query {
+          font-size: 13px;
+          color: hsl(var(--foreground));
+        }
+        .pac-matched {
+          font-weight: 600;
+        }
+      `}</style>
+
+      <form onSubmit={onSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="street_address" className="text-sm font-dm-sans text-foreground">
+            Street Address
           </Label>
           <Input
-            id="city"
-            name="city"
-            defaultValue={businessProfile?.city ?? ''}
-            placeholder="Franklin"
+            ref={streetRef}
+            id="street_address"
+            name="street_address"
+            value={streetAddress}
+            onChange={(e) => setStreetAddress(e.target.value)}
+            placeholder="123 Main St"
             className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            autoComplete="off"
           />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-2 sm:col-span-1">
+            <Label htmlFor="city" className="text-sm font-dm-sans text-foreground">
+              City
+            </Label>
+            <Input
+              id="city"
+              name="city"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="Franklin"
+              className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="state" className="text-sm font-dm-sans text-foreground">
+              State
+            </Label>
+            <Input
+              id="state"
+              name="state"
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              placeholder="TN"
+              maxLength={2}
+              className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="zip" className="text-sm font-dm-sans text-foreground">
+              ZIP Code
+            </Label>
+            <Input
+              id="zip"
+              name="zip"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+              placeholder="37064"
+              maxLength={10}
+              className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            />
+          </div>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="state" className="text-sm font-dm-sans text-foreground">
-            State
+          <Label className="text-sm font-dm-sans text-foreground">
+            Service Areas
           </Label>
-          <Input
-            id="state"
-            name="state"
-            defaultValue={businessProfile?.state ?? ''}
-            placeholder="TN"
-            maxLength={2}
-            className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
-          />
+          <p className="text-xs text-muted-foreground">
+            Add cities or regions where you serve customers.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              value={areaInput}
+              onChange={(e) => setAreaInput(e.target.value)}
+              onKeyDown={onAreaKeyDown}
+              placeholder="e.g. Nashville, Brentwood"
+              className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addArea}
+              className="border-strawberry text-strawberry hover:bg-strawberry/10 rounded-xl shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+          {serviceAreas.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {serviceAreas.map((area) => (
+                <Badge
+                  key={area}
+                  variant="secondary"
+                  className="bg-strawberry/10 text-strawberry border border-strawberry/20 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
+                >
+                  {area}
+                  <button
+                    type="button"
+                    onClick={() => removeArea(area)}
+                    className="ml-1 hover:text-strawberry transition-colors"
+                    aria-label={`Remove ${area}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="zip" className="text-sm font-dm-sans text-foreground">
-            ZIP Code
-          </Label>
-          <Input
-            id="zip"
-            name="zip"
-            defaultValue=""
-            placeholder="37064"
-            maxLength={10}
-            className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label className="text-sm font-dm-sans text-foreground">
-          Service Areas
-        </Label>
-        <p className="text-xs text-muted-foreground">
-          Add cities or regions where you serve customers.
-        </p>
-        <div className="flex gap-2">
-          <Input
-            value={areaInput}
-            onChange={(e) => setAreaInput(e.target.value)}
-            onKeyDown={onAreaKeyDown}
-            placeholder="e.g. Nashville, Brentwood"
-            className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
-          />
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2">
           <Button
             type="button"
-            variant="outline"
-            onClick={addArea}
-            className="border-strawberry text-strawberry hover:bg-strawberry/10 rounded-xl shrink-0"
+            variant="ghost"
+            onClick={onBack}
+            className="text-muted-foreground hover:text-foreground rounded-xl min-h-[44px]"
           >
-            <Plus className="w-4 h-4" />
+            Back
+          </Button>
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 min-h-[44px]"
+          >
+            {isSubmitting ? 'Saving...' : 'Continue'}
           </Button>
         </div>
-        {serviceAreas.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {serviceAreas.map((area) => (
-              <Badge
-                key={area}
-                variant="secondary"
-                className="bg-strawberry/10 text-strawberry border border-strawberry/20 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
-              >
-                {area}
-                <button
-                  type="button"
-                  onClick={() => removeArea(area)}
-                  className="ml-1 hover:text-strawberry transition-colors"
-                  aria-label={`Remove ${area}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onBack}
-          className="text-muted-foreground hover:text-foreground rounded-xl min-h-[44px]"
-        >
-          Back
-        </Button>
-        <Button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full sm:w-auto bg-strawberry hover:bg-strawberry/90 text-white rounded-xl px-8 min-h-[44px]"
-        >
-          {isSubmitting ? 'Saving...' : 'Continue'}
-        </Button>
-      </div>
-    </form>
+      </form>
+    </>
   )
 }
