@@ -4,7 +4,7 @@ interface StepProgressProps {
   completedSteps: number[]
 }
 
-const STEP_LABELS = ['Business', 'Location', 'Services', 'Google', 'Social']
+const STEP_LABELS = ['Template', 'Business', 'Location', 'Services', 'Google', 'Social', 'Plan']
 
 export function StepProgress({ currentStep, totalSteps, completedSteps }: StepProgressProps) {
   const progressPercent = ((currentStep - 1) / (totalSteps - 1)) * 100

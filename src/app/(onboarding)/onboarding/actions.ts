@@ -378,6 +378,7 @@ export async function goBackAction(targetStep: number): Promise<ActionResult> {
       return { success: false, error: 'Failed to navigate back' }
     }
 
+    revalidatePath(`/onboarding/step/${targetStep}`)
     return { success: true }
   } catch (err) {
     console.error({ err })

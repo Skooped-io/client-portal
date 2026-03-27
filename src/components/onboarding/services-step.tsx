@@ -149,7 +149,7 @@ export function ServicesStep({ businessProfile, onBack }: ServicesStepProps) {
                 <Badge
                   key={service}
                   variant="secondary"
-                  className="bg-vanilla/20 text-chocolate border-0 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
+                  className="bg-strawberry/10 text-foreground border border-strawberry/30 rounded-full px-3 py-1 font-dm-sans text-xs flex items-center gap-1"
                 >
                   {service}
                   <button

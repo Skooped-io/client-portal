@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useTransition } from 'react'
 import { motion } from 'framer-motion'
 import { StepProgress } from './step-progress'
 import { TemplatePickerStep } from './template-picker-step'
@@ -11,6 +12,7 @@ import { GoogleConnectStep } from './google-connect-step'
 import { MetaConnectStep } from './meta-connect-step'
 import { PlanSelectionStep } from './plan-selection-step'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { goBackAction } from '@/app/(onboarding)/onboarding/actions'
 import type { BusinessProfile, OnboardingProgress, OauthConnection } from '@/lib/types'
 
 // ===== Ice cream scoop step icon =====
@@ -88,12 +90,18 @@ export function OnboardingWizard({
   metaConnection,
 }: OnboardingWizardProps) {
   const router = useRouter()
+  const [isPending, startTransition] = useTransition()
   const stepConfig = STEP_CONFIG[currentStep - 1]
   const completedSteps = progress?.completed_steps ?? []
 
   function goBack() {
     if (currentStep > 1) {
-      router.push(`/onboarding/step/${currentStep - 1}`)
+      const prevStep = currentStep - 1
+      startTransition(async () => {
+        await goBackAction(prevStep)
+        router.push(`/onboarding/step/${prevStep}`)
+        router.refresh()
+      })
     }
   }
 
