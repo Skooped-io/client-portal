@@ -30,6 +30,7 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
 
   // Controlled address fields so autocomplete can fill them
   const [streetAddress, setStreetAddress] = useState('')
+  const [aptSuite, setAptSuite] = useState('')
   const [city, setCity] = useState(businessProfile?.city ?? '')
   const [state, setState] = useState(businessProfile?.state ?? '')
   const [zip, setZip] = useState('')
@@ -76,7 +77,7 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
     setIsSubmitting(true)
 
     const result = await saveStep2Action({
-      street_address: streetAddress || undefined,
+      street_address: [streetAddress, aptSuite].filter(Boolean).join(', ') || undefined,
       city: city || undefined,
       state: state || undefined,
       zip: zip || undefined,
@@ -105,25 +106,42 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
         .pac-container {
           border-radius: 12px;
           border: 1px solid hsl(var(--border));
+          background: hsl(var(--card)) !important;
           box-shadow: 0 4px 16px rgba(0,0,0,0.1);
           font-family: var(--font-dm-sans), sans-serif;
           font-size: 14px;
           margin-top: 4px;
+          z-index: 9999 !important;
         }
         .pac-item {
           padding: 8px 12px;
           cursor: pointer;
-          color: hsl(var(--foreground));
+          color: hsl(var(--foreground)) !important;
+          background: hsl(var(--card)) !important;
+          border-top: 1px solid hsl(var(--border));
+        }
+        .pac-item:first-child {
+          border-top: none;
         }
         .pac-item:hover, .pac-item-selected {
-          background: hsl(var(--muted));
+          background: hsl(var(--muted)) !important;
         }
         .pac-item-query {
           font-size: 13px;
-          color: hsl(var(--foreground));
+          color: hsl(var(--foreground)) !important;
+        }
+        .pac-icon {
+          filter: brightness(0.5);
         }
         .pac-matched {
           font-weight: 600;
+          color: hsl(var(--foreground)) !important;
+        }
+        .pac-item span {
+          color: hsl(var(--muted-foreground)) !important;
+        }
+        .pac-item-query span {
+          color: hsl(var(--foreground)) !important;
         }
       `}</style>
 
@@ -141,6 +159,20 @@ export function LocationStep({ businessProfile, onBack }: LocationStepProps) {
             placeholder="123 Main St"
             className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
             autoComplete="off"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="apt_suite" className="text-sm font-dm-sans text-foreground">
+            Apt / Suite <span className="text-muted-foreground font-normal">(optional)</span>
+          </Label>
+          <Input
+            id="apt_suite"
+            name="apt_suite"
+            value={aptSuite}
+            onChange={(e) => setAptSuite(e.target.value)}
+            placeholder="Apt 4B, Suite 200, etc."
+            className="bg-background border-border rounded-xl focus:ring-2 focus:ring-strawberry/20 focus:border-strawberry"
           />
         </div>
 
