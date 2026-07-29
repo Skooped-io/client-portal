@@ -30,14 +30,16 @@ export const maxDuration = 60
  *      Clients are NEVER emailed by this route. Email failure (missing/stale
  *      RESEND_API_KEY included) is logged and does not fail the run.
  *
- * Auth: Vercel cron convention — Authorization: Bearer CRON_SECRET, or the
- * x-vercel-cron header (same pattern as the other cron routes here).
+ * Auth: Authorization: Bearer CRON_SECRET only. The x-vercel-cron header is NOT
+ * accepted — it is spoofable by external callers (verified 2026-07-29), and this
+ * route's response includes share URLs, so a spoofed trigger would leak report
+ * links. Vercel's scheduler sends the Bearer automatically when CRON_SECRET is
+ * set. If CRON_SECRET is unset, the route refuses in production.
  */
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 function verifyCron(request: NextRequest): boolean {
-  if (request.headers.get('x-vercel-cron')) return true
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) return process.env.NODE_ENV === 'development'
