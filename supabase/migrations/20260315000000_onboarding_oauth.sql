@@ -91,7 +91,7 @@ CREATE POLICY "Users can update own onboarding" ON onboarding_progress
 CREATE POLICY "Org members can view oauth connections" ON oauth_connections
   FOR SELECT USING (
     org_id IN (
-      SELECT organization_id FROM organization_members WHERE user_id = auth.uid()
+      SELECT org_id FROM organization_members WHERE user_id = auth.uid()
     )
   );
 
@@ -99,6 +99,6 @@ CREATE POLICY "Org members can view oauth connections" ON oauth_connections
 CREATE POLICY "Org members can manage oauth connections" ON oauth_connections
   FOR ALL USING (
     org_id IN (
-      SELECT organization_id FROM organization_members WHERE user_id = auth.uid()
+      SELECT org_id FROM organization_members WHERE user_id = auth.uid()
     )
   );

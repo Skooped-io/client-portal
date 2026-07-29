@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   FileText,
@@ -255,6 +256,23 @@ interface ReportModalProps {
 }
 
 function ReportModal({ report, onClose }: ReportModalProps) {
+  const [sharing, setSharing] = useState(false)
+
+  async function handleShare() {
+    setSharing(true)
+    try {
+      const res = await fetch(`/api/reports/${report.id}/share`, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { url } = (await res.json()) as { url: string }
+      await navigator.clipboard.writeText(url)
+      toast.success('Public report link copied to clipboard')
+    } catch {
+      toast.error('Could not create a share link for this report')
+    } finally {
+      setSharing(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -360,9 +378,14 @@ function ReportModal({ report, onClose }: ReportModalProps) {
             <Download className="w-4 h-4" />
             Download PDF
           </Button>
-          <Button variant="outline" className="flex-1 rounded-xl border-border gap-2">
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl border-border gap-2"
+            onClick={handleShare}
+            disabled={sharing}
+          >
             <Share2 className="w-4 h-4" />
-            Share with Team
+            {sharing ? 'Creating link...' : 'Copy Public Link'}
           </Button>
         </div>
       </motion.div>

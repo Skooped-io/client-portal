@@ -33,9 +33,11 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = pathname === '/login' || pathname === '/signup'
   const isOnboardingPage = pathname.startsWith('/onboarding')
   const isApiRoute = pathname.startsWith('/api')
+  // Public tokenized report pages (/r/[token]) — no login required
+  const isPublicReportPage = pathname.startsWith('/r/')
 
-  // Unauthenticated: redirect to login (except auth pages and API routes)
-  if (!user && !isAuthPage && !isApiRoute) {
+  // Unauthenticated: redirect to login (except auth pages, API routes, public report pages)
+  if (!user && !isAuthPage && !isApiRoute && !isPublicReportPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
@@ -48,8 +50,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Authenticated on a portal page (not onboarding, not API): check if onboarding is needed
-  if (user && !isAuthPage && !isOnboardingPage && !isApiRoute) {
+  // Authenticated on a portal page (not onboarding, not API, not public report): check if onboarding is needed
+  if (user && !isAuthPage && !isOnboardingPage && !isApiRoute && !isPublicReportPage) {
     const { data: progress } = await supabase
       .from('onboarding_progress')
       .select('is_complete, current_step')
