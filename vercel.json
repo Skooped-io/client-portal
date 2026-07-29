@@ -1,24 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/sync-all",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/token-health",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/cron/site-health",
-      "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/api/cron/generate-reports",
-      "schedule": "0 12 * * 1"
-    },
-    {
-      "path": "/api/cron/send-weekly-emails",
-      "schedule": "0 14 * * 1"
+      "path": "/api/cron/monthly-reports",
+      "schedule": "0 13 1 * *"
     }
   ]
 }
