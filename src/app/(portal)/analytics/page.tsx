@@ -42,12 +42,16 @@ export default async function AnalyticsServerPage() {
       bounceRate: r.bounce_rate ?? 0,
       avgSession: r.avg_session_duration ?? 0,
     })),
-    topPages: (latest.top_pages as Array<{ page: string; views: number }> ?? []).map(p => ({
-      page: p.page,
-      views: p.views,
-      bounce: '—',
-      time: '—',
-    })),
+    // Rows come from two writers with different shapes: GA4-era {page, views} and
+    // the ingest route's {path, pageviews}. Accept both.
+    topPages: ((latest.top_pages as Array<Record<string, unknown>>) ?? [])
+      .map(p => ({
+        page: typeof p.page === 'string' ? p.page : typeof p.path === 'string' ? p.path : '',
+        views: typeof p.views === 'number' ? p.views : typeof p.pageviews === 'number' ? p.pageviews : 0,
+        bounce: '—',
+        time: '—',
+      }))
+      .filter(p => p.page !== ''),
     summary: {
       totalVisitors: rows.reduce((sum, r) => sum + (r.users ?? 0), 0),
       totalPageviews,

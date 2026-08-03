@@ -7,8 +7,14 @@ import {
   Minus,
   CheckCircle2,
   Search,
-  Users,
   Megaphone,
+  DollarSign,
+  MousePointerClick,
+  Eye,
+  Smartphone,
+  Globe,
+  BookOpen,
+  Users,
 } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cn } from '@/lib/utils'
@@ -27,10 +33,26 @@ interface PublicMetric {
   label: string
   value: number
   prevValue: number | null
+  prefix?: string
   suffix?: string
   decimals?: number
   lowerIsBetter?: boolean
   icon: React.ElementType
+}
+
+interface SourceRow {
+  source: string
+  sessions: number
+}
+
+interface PageRow {
+  path: string
+  pageviews: number
+}
+
+interface DeviceRow {
+  device: string
+  sessions: number
 }
 
 // ===== Helpers (mirrors reports-client.tsx trend logic) =====
@@ -51,7 +73,10 @@ function getChangePercent(value: number, prevValue: number): string | null {
 function prevFromChangePct(value: number, changePct: number | undefined): number | null {
   if (changePct === undefined || changePct === null) return null
   if (changePct === 0) return value
-  return Math.round(value / (1 + changePct / 100))
+  const denominator = 1 + changePct / 100
+  if (denominator <= 0) return null
+  const prev = Math.round(value / denominator)
+  return Number.isFinite(prev) ? prev : null
 }
 
 function formatValue(value: number, decimals = 0): string {
@@ -59,6 +84,66 @@ function formatValue(value: number, decimals = 0): string {
     ? value.toFixed(decimals)
     : value.toLocaleString('en-US')
 }
+
+function num(m: Record<string, unknown>, key: string): number | undefined {
+  const v = m[key]
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+// Friendly label for a raw referrer host. Data-side prep normalizes most of these
+// already; this is the render-side safety net so raw hosts never reach a client.
+function sourceLabel(raw: string): string {
+  const s = raw.toLowerCase()
+  if (s === 'direct' || s === '(direct)') return 'Came directly (typed it in or saved link)'
+  if (s.includes('googlequicksearchbox')) return 'Google app'
+  if (s.includes('google')) return 'Google Search'
+  if (s.includes('facebook')) return 'Facebook'
+  if (s.includes('instagram')) return 'Instagram'
+  if (s.includes('bing')) return 'Bing'
+  if (s.includes('duckduckgo')) return 'DuckDuckGo'
+  if (s.includes('yahoo')) return 'Yahoo'
+  if (s.includes('chatgpt')) return 'ChatGPT'
+  if (s.includes('youtube')) return 'YouTube'
+  if (s.includes('psychologytoday')) return 'Psychology Today'
+  if (s.includes('yelp')) return 'Yelp'
+  return raw.replace(/^www\./, '')
+}
+
+// Merge rows whose friendly labels collide (m.facebook.com + facebook.com, etc.).
+function mergeSources(rows: SourceRow[]): Array<{ label: string; sessions: number }> {
+  const acc = new Map<string, number>()
+  for (const r of rows) {
+    // Reserved device rows must never render as a traffic source.
+    if (r.source.startsWith('__device__:')) continue
+    const label = sourceLabel(r.source)
+    acc.set(label, (acc.get(label) ?? 0) + r.sessions)
+  }
+  return Array.from(acc.entries())
+    .map(([label, sessions]) => ({ label, sessions }))
+    .sort((a, b) => b.sessions - a.sessions)
+}
+
+function pageLabel(path: string): string {
+  if (path === '/' || path === '') return 'Home page'
+  const cleaned = path.replace(/^\/+|\/+$/g, '').replace(/-/g, ' ').replace(/\//g, ' › ')
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
+function asArray<T>(v: unknown, guard: (x: unknown) => x is T): T[] {
+  return Array.isArray(v) ? v.filter(guard) : []
+}
+
+const isSourceRow = (x: unknown): x is SourceRow =>
+  typeof x === 'object' && x !== null &&
+  typeof (x as SourceRow).source === 'string' && typeof (x as SourceRow).sessions === 'number'
+
+const isPageRow = (x: unknown): x is PageRow =>
+  typeof x === 'object' && x !== null &&
+  typeof (x as PageRow).path === 'string' && typeof (x as PageRow).pageviews === 'number'
+
+const isDeviceRow = (x: unknown): x is DeviceRow =>
+  typeof x === 'object' && x !== null &&
+  typeof (x as DeviceRow).device === 'string' && typeof (x as DeviceRow).sessions === 'number'
 
 // ===== Page =====
 
@@ -83,9 +168,26 @@ export default async function PublicReportPage({ params }: PublicReportPageProps
 
   const org = report.organizations as { name: string } | null
   const orgName = org?.name ?? 'Your Business'
-  const m = (report.metrics as Record<string, number>) ?? {}
+  const m = (report.metrics as Record<string, unknown>) ?? {}
   const highlights = ((report.highlights as Array<string | Record<string, unknown>>) ?? [])
     .filter((h): h is string => typeof h === 'string')
+
+  const topSources = mergeSources(asArray(m.top_sources, isSourceRow)).slice(0, 6)
+  const topPages = asArray(m.top_pages, isPageRow).slice(0, 6)
+  const devices = asArray(m.device_split, isDeviceRow)
+  const deviceTotal = devices.reduce((a, d) => a + d.sessions, 0)
+  const phoneSessions = devices
+    .filter((d) => d.device.toLowerCase() === 'mobile' || d.device.toLowerCase() === 'tablet')
+    .reduce((a, d) => a + d.sessions, 0)
+  // Only quote a phone share when the device sample is big enough to mean something:
+  // at least 20 tracked sessions AND at least half of the reported visit total.
+  const sessionsMetric = num(m, 'sessions')
+  const deviceSampleOk =
+    deviceTotal >= 20 && (sessionsMetric === undefined || deviceTotal >= sessionsMetric * 0.5)
+  const phoneShare = deviceSampleOk ? Math.round((phoneSessions / deviceTotal) * 100) : null
+
+  const maxSource = topSources[0]?.sessions ?? 0
+  const maxPage = topPages.reduce((a, p) => Math.max(a, p.pageviews), 0)
 
   const periodEnd = new Date(report.period_end + 'T00:00:00')
   const periodStart = new Date(report.period_start + 'T00:00:00')
@@ -100,34 +202,79 @@ export default async function PublicReportPage({ params }: PublicReportPageProps
     year: 'numeric',
   })
 
-  const metrics: PublicMetric[] = [
-    {
-      label: 'Google Search Clicks',
-      value: m.clicks ?? 0,
-      prevValue: prevFromChangePct(m.clicks ?? 0, m.clicks_change_pct),
-      icon: Search,
-    },
+  // Tiles only render when the number is real: no dead zeros for unwired sources.
+  // Prefer the cron-stored *_prev values (exact) over back-deriving from the change
+  // pct, which cannot represent a prior month of zero.
+  const sessions = num(m, 'sessions')
+  const pageviews = num(m, 'pageviews')
+  const candidates: Array<PublicMetric & { show: boolean }> = [
     {
       label: 'Website Visits',
-      value: m.sessions ?? 0,
-      prevValue: prevFromChangePct(m.sessions ?? 0, m.sessions_change_pct),
+      value: sessions ?? 0,
+      prevValue: num(m, 'sessions_prev') ?? prevFromChangePct(sessions ?? 0, num(m, 'sessions_change_pct')),
       icon: TrendingUp,
+      show: sessions !== undefined,
     },
     {
-      label: 'Avg. Google Position',
-      value: m.avg_position ?? 0,
-      prevValue: m.position_change ? (m.avg_position ?? 0) + m.position_change : null,
-      decimals: 1,
-      lowerIsBetter: true,
+      label: 'Pages Viewed',
+      value: pageviews ?? 0,
+      prevValue: null,
+      icon: BookOpen,
+      show: pageviews !== undefined && pageviews > 0,
+    },
+    {
+      label: 'Ad Clicks',
+      value: num(m, 'ad_clicks') ?? 0,
+      prevValue: null,
+      icon: MousePointerClick,
+      show: (num(m, 'ad_clicks') ?? 0) > 0,
+    },
+    {
+      label: 'Ad Spend',
+      value: num(m, 'ad_spend') ?? 0,
+      prevValue: num(m, 'ad_spend_prev') ?? prevFromChangePct(num(m, 'ad_spend') ?? 0, num(m, 'ad_spend_change_pct')),
+      prefix: '$',
+      decimals: 2,
+      icon: DollarSign,
+      show: (num(m, 'ad_spend') ?? 0) > 0,
+    },
+    {
+      label: 'Ad Impressions',
+      value: num(m, 'ad_impressions') ?? 0,
+      prevValue: null,
+      icon: Eye,
+      show: (num(m, 'ad_impressions') ?? 0) > 0,
+    },
+    {
+      label: 'Leads from Ads',
+      value: num(m, 'ad_conversions') ?? 0,
+      prevValue: null,
       icon: Users,
+      show: (num(m, 'ad_conversions') ?? 0) > 0,
+    },
+    {
+      label: 'Leads',
+      value: num(m, 'leads') ?? 0,
+      prevValue: null,
+      icon: Users,
+      show: (num(m, 'leads') ?? 0) > 0,
+    },
+    {
+      label: 'Google Search Clicks',
+      value: num(m, 'clicks') ?? 0,
+      prevValue: num(m, 'clicks_prev') ?? prevFromChangePct(num(m, 'clicks') ?? 0, num(m, 'clicks_change_pct')),
+      icon: Search,
+      show: (num(m, 'clicks') ?? 0) > 0,
     },
     {
       label: 'Phone Calls',
-      value: m.phone_calls ?? 0,
+      value: num(m, 'phone_calls') ?? 0,
       prevValue: null,
       icon: Megaphone,
+      show: (num(m, 'phone_calls') ?? 0) > 0,
     },
   ]
+  const metrics = candidates.filter((c) => c.show)
 
   return (
     <div className="min-h-screen bg-background">
@@ -159,61 +306,135 @@ export default async function PublicReportPage({ params }: PublicReportPageProps
         )}
 
         {/* Metrics */}
-        <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6">
-          <h2 className="text-sm font-medium text-foreground mb-4">
-            How your marketing did vs. {comparisonLabel}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {metrics.map((metric) => {
-              const Icon = metric.icon
-              const hasPrev = metric.prevValue !== null
-              const trend = hasPrev
-                ? getTrend(metric.value, metric.prevValue as number, metric.lowerIsBetter)
-                : 'flat'
-              const pct = hasPrev ? getChangePercent(metric.value, metric.prevValue as number) : null
-              return (
-                <div key={metric.label} className="rounded-xl bg-background border border-border p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-7 h-7 rounded-lg bg-strawberry/10 flex items-center justify-center">
-                      <Icon className="w-3.5 h-3.5 text-strawberry" />
+        {metrics.length > 0 && (
+          <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6">
+            <h2 className="text-sm font-medium text-foreground mb-4">
+              How your marketing did vs. {comparisonLabel}
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {metrics.map((metric) => {
+                const Icon = metric.icon
+                const hasPrev = metric.prevValue !== null
+                const trend = hasPrev
+                  ? getTrend(metric.value, metric.prevValue as number, metric.lowerIsBetter)
+                  : 'flat'
+                const pct = hasPrev ? getChangePercent(metric.value, metric.prevValue as number) : null
+                return (
+                  <div key={metric.label} className="rounded-xl bg-background border border-border p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 rounded-lg bg-strawberry/10 flex items-center justify-center">
+                        <Icon className="w-3.5 h-3.5 text-strawberry" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">{metric.label}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">{metric.label}</span>
-                  </div>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <span className="text-2xl font-nunito font-bold text-foreground">
-                        {formatValue(metric.value, metric.decimals)}
-                        {metric.suffix ?? ''}
-                      </span>
-                      {hasPrev && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          vs. {formatValue(metric.prevValue as number, metric.decimals)} {comparisonLabel}
-                        </p>
+                    <div className="flex items-end justify-between">
+                      <div>
+                        <span className="text-2xl font-nunito font-bold text-foreground">
+                          {metric.prefix ?? ''}
+                          {formatValue(metric.value, metric.decimals)}
+                          {metric.suffix ?? ''}
+                        </span>
+                        {hasPrev && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            vs. {metric.prefix ?? ''}{formatValue(metric.prevValue as number, metric.decimals)} {comparisonLabel}
+                          </p>
+                        )}
+                      </div>
+                      {pct && (
+                        <span
+                          className={cn(
+                            'text-xs font-semibold flex items-center gap-1 px-2 py-1 rounded-lg',
+                            trend === 'up'
+                              ? 'bg-mint/10 text-mint'
+                              : trend === 'down'
+                                ? 'bg-strawberry/10 text-strawberry'
+                                : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {trend === 'up' && <TrendingUp className="w-3 h-3" />}
+                          {trend === 'down' && <TrendingDown className="w-3 h-3" />}
+                          {trend === 'flat' && <Minus className="w-3 h-3" />}
+                          {pct}
+                        </span>
                       )}
                     </div>
-                    {pct && (
-                      <span
-                        className={cn(
-                          'text-xs font-semibold flex items-center gap-1 px-2 py-1 rounded-lg',
-                          trend === 'up'
-                            ? 'bg-mint/10 text-mint'
-                            : trend === 'down'
-                              ? 'bg-strawberry/10 text-strawberry'
-                              : 'bg-muted text-muted-foreground',
-                        )}
-                      >
-                        {trend === 'up' && <TrendingUp className="w-3 h-3" />}
-                        {trend === 'down' && <TrendingDown className="w-3 h-3" />}
-                        {trend === 'flat' && <Minus className="w-3 h-3" />}
-                        {pct}
-                      </span>
-                    )}
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+            {phoneShare !== null && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+                <Smartphone className="w-3.5 h-3.5 text-strawberry shrink-0" />
+                {phoneShare}% of your visitors were on a phone or tablet.
+              </p>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* Empty state: tracking not wired yet */}
+        {metrics.length === 0 && (
+          <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6">
+            <h2 className="text-sm font-medium text-foreground mb-2">Your numbers are coming</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              We are still wiring up tracking for your account. Visits, leads, and marketing
+              numbers will appear here starting with your next monthly report.
+            </p>
+          </div>
+        )}
+
+        {/* Traffic sources */}
+        {topSources.length > 0 && (
+          <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6">
+            <h2 className="flex items-center gap-2 text-sm font-medium text-foreground mb-4">
+              <Globe className="w-4 h-4 text-strawberry" />
+              Where your visitors came from
+            </h2>
+            <ul className="space-y-3">
+              {topSources.map((s) => (
+                <li key={s.label}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-foreground">{s.label}</span>
+                    <span className="text-muted-foreground">{s.sessions.toLocaleString('en-US')}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-strawberry/60"
+                      style={{ width: `${maxSource > 0 ? Math.max(4, Math.round((s.sessions / maxSource) * 100)) : 0}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Top pages */}
+        {topPages.length > 0 && (
+          <div className="rounded-lg md:rounded-2xl border border-border bg-card p-4 md:p-6 mb-6">
+            <h2 className="flex items-center gap-2 text-sm font-medium text-foreground mb-4">
+              <BookOpen className="w-4 h-4 text-strawberry" />
+              What they looked at most
+            </h2>
+            <ul className="space-y-3">
+              {topPages.map((p) => (
+                <li key={p.path}>
+                  <div className="flex items-center justify-between gap-3 text-sm mb-1">
+                    <span className="text-foreground truncate">{pageLabel(p.path)}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {p.pageviews.toLocaleString('en-US')} views
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-mint/60"
+                      style={{ width: `${maxPage > 0 ? Math.max(4, Math.round((p.pageviews / maxPage) * 100)) : 0}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Highlights */}
         {highlights.length > 0 && (

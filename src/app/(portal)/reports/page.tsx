@@ -33,14 +33,15 @@ export default async function ReportsServerPage() {
       { label: 'Phone Calls', value: m.phone_calls ?? 0, prevValue: 0, formatNumber: true },
     ]
 
-    // If we have change percentages, use them for prevValue calculation
-    if (m.clicks_change_pct) {
+    // If we have change percentages, use them for prevValue calculation.
+    // Guard the -100 case (metric dropped to zero): denominator would be 0.
+    if (typeof m.clicks_change_pct === 'number' && m.clicks_change_pct > -100) {
       const prevClicks = m.clicks_change_pct !== 0
         ? Math.round(m.clicks / (1 + m.clicks_change_pct / 100))
         : m.clicks
       metrics[0].prevValue = prevClicks
     }
-    if (m.sessions_change_pct) {
+    if (typeof m.sessions_change_pct === 'number' && m.sessions_change_pct > -100) {
       const prevSessions = m.sessions_change_pct !== 0
         ? Math.round(m.sessions / (1 + m.sessions_change_pct / 100))
         : m.sessions

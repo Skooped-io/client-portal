@@ -75,8 +75,9 @@ function fmt(n: number): string {
 // ─── Section builders (one per metric table — the extension point) ───────────
 
 interface SectionOutput {
-  /** Merged into reports.metrics. Keys match what /r/[token] renders. */
-  metrics: Record<string, number>
+  /** Merged into reports.metrics (jsonb). Keys match what /r/[token] renders;
+   *  values may be numbers or small JSON arrays (top_sources, top_pages, device_split). */
+  metrics: Record<string, unknown>
   /** Sentences for reports.highlights. */
   highlights: string[]
   /** Sentence fragment(s) for the summary. */
@@ -91,6 +92,20 @@ interface SectionBuilder {
   build: (rows: MetricRow[], prevRows: MetricRow[]) => SectionOutput
 }
 
+// Daily rows carry per-day traffic_sources [{source, sessions}] and top_pages
+// [{path, pageviews}] jsonb (written by /api/ingest/analytics). Device rows ride
+// inside traffic_sources with a reserved prefix so no schema change was needed.
+const DEVICE_PREFIX = '__device__:'
+
+interface SourceEntry { source: string; sessions: number }
+
+function topN<T>(map: Map<string, number>, n: number, shape: (k: string, v: number) => T): T[] {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k, v]) => shape(k, v))
+}
+
 const SECTION_BUILDERS: SectionBuilder[] = [
   {
     key: 'analytics',
@@ -101,6 +116,34 @@ const SECTION_BUILDERS: SectionBuilder[] = [
       const pageviews = sum(rows, 'pageviews')
       const prevSessions = sum(prevRows, 'sessions')
       const sessionsChange = prevRows.length > 0 ? pctChange(sessions, prevSessions) : null
+
+      const sourceTotals = new Map<string, number>()
+      const deviceTotals = new Map<string, number>()
+      const pageTotals = new Map<string, number>()
+      for (const r of rows) {
+        const sources = Array.isArray(r.traffic_sources) ? (r.traffic_sources as SourceEntry[]) : []
+        for (const s of sources) {
+          if (typeof s?.source !== 'string' || typeof s?.sessions !== 'number') continue
+          if (s.source.startsWith(DEVICE_PREFIX)) {
+            const d = s.source.slice(DEVICE_PREFIX.length)
+            deviceTotals.set(d, (deviceTotals.get(d) ?? 0) + s.sessions)
+          } else {
+            sourceTotals.set(s.source, (sourceTotals.get(s.source) ?? 0) + s.sessions)
+          }
+        }
+        // Two writer shapes exist in top_pages jsonb: ingest {path, pageviews} and
+        // GA4-era/seed {page, views}. Accept both.
+        const pages = Array.isArray(r.top_pages) ? (r.top_pages as Array<Record<string, unknown>>) : []
+        for (const p of pages) {
+          const path = typeof p?.path === 'string' ? p.path : typeof p?.page === 'string' ? p.page : null
+          const views = typeof p?.pageviews === 'number' ? p.pageviews : typeof p?.views === 'number' ? p.views : null
+          if (path === null || views === null) continue
+          pageTotals.set(path, (pageTotals.get(path) ?? 0) + views)
+        }
+      }
+      const topSources = topN(sourceTotals, 6, (source, sessions) => ({ source, sessions }))
+      const topPages = topN(pageTotals, 6, (path, pageviews) => ({ path, pageviews }))
+      const deviceSplit = topN(deviceTotals, 4, (device, sessions) => ({ device, sessions }))
 
       const line =
         `${fmt(sessions)} website visits and ${fmt(pageviews)} page views` +
@@ -120,7 +163,12 @@ const SECTION_BUILDERS: SectionBuilder[] = [
         metrics: {
           sessions,
           pageviews,
-          ...(sessionsChange !== null ? { sessions_change_pct: sessionsChange } : {}),
+          ...(sessionsChange !== null
+            ? { sessions_change_pct: sessionsChange, sessions_prev: prevSessions }
+            : {}),
+          ...(topSources.length > 0 ? { top_sources: topSources } : {}),
+          ...(topPages.length > 0 ? { top_pages: topPages } : {}),
+          ...(deviceSplit.length > 0 ? { device_split: deviceSplit } : {}),
         },
         highlights,
         summaryLines: [line],
@@ -149,7 +197,9 @@ const SECTION_BUILDERS: SectionBuilder[] = [
           ad_clicks: clicks,
           ad_impressions: impressions,
           ad_conversions: conversions,
-          ...(spendChange !== null ? { ad_spend_change_pct: spendChange } : {}),
+          ...(spendChange !== null
+            ? { ad_spend_change_pct: spendChange, ad_spend_prev: Math.round(prevSpend * 100) / 100 }
+            : {}),
         },
         highlights: conversions > 0 ? [`${fmt(conversions)} conversions from ads`] : [],
         summaryLines: [parts.join(', ')],
@@ -175,7 +225,9 @@ const SECTION_BUILDERS: SectionBuilder[] = [
           clicks,
           impressions,
           avg_position: Math.round(position * 10) / 10,
-          ...(clicksChange !== null ? { clicks_change_pct: clicksChange } : {}),
+          ...(clicksChange !== null
+            ? { clicks_change_pct: clicksChange, clicks_prev: prevClicks }
+            : {}),
           ...(positionChange !== null ? { position_change: positionChange } : {}),
         },
         highlights:
@@ -356,7 +408,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Run every registered section builder over the prior month.
-      const metrics: Record<string, number> = {}
+      const metrics: Record<string, unknown> = {}
       const highlights: string[] = []
       const summaryLines: string[] = []
       const notWired: string[] = []
@@ -396,7 +448,7 @@ export async function GET(request: NextRequest) {
       if (summaryLines.length > 0) {
         summary = `${periodLabel}: ${summaryLines.join('. ')}.`
         if (notWired.length > 0) {
-          summary += ` Not yet connected: ${notWired.join(', ')} — those tiles will show zero until wired up.`
+          summary += ` Not yet connected: ${notWired.join(', ')}; those numbers will appear here once we wire them up.`
         }
       } else {
         summary = `${periodLabel}: no tracking data was collected for this period yet (${notWired.join(', ')} not connected). Numbers will appear once data collection is wired up.`

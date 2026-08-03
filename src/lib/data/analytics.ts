@@ -11,11 +11,15 @@ export interface AnalyticsSnapshot {
   traffic_sources: Array<{
     source: string
     sessions: number
-    percentage: number
+    /** GA4-synced rows carry this; ingest-written rows do not. */
+    percentage?: number
   }>
+  /** Two writer shapes exist: GA4-era {page, views} and ingest {path, pageviews}. */
   top_pages: Array<{
-    page: string
-    views: number
+    page?: string
+    views?: number
+    path?: string
+    pageviews?: number
   }>
   property_id: string | null
 }

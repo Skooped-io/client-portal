@@ -122,14 +122,23 @@ async function DashboardData() {
 
     if (seoLatest || analyticsLatest) hasRealData = true
 
-    // Build traffic sources from analytics if available
-    if (analyticsLatest?.traffic_sources && Array.isArray(analyticsLatest.traffic_sources) && analyticsLatest.traffic_sources.length > 0) {
+    // Build traffic sources from analytics if available. Rows written by
+    // /api/ingest/analytics carry no percentage field (compute from sessions) and
+    // may include reserved "__device__:" entries that must never render as sources.
+    if (analyticsLatest?.traffic_sources && Array.isArray(analyticsLatest.traffic_sources)) {
       const colors = ['#D94A7A', '#5B8DEF', '#4CAF50', '#C99035', '#9b87f5']
-      trafficSources = (analyticsLatest.traffic_sources as Array<{ source: string; sessions: number; percentage: number }>).slice(0, 5).map((s, i) => ({
-        name: s.source,
-        value: Math.round(s.percentage),
-        color: colors[i % colors.length],
-      }))
+      const sourceRows = (analyticsLatest.traffic_sources as Array<{ source?: string; sessions?: number; percentage?: number }>)
+        .filter((s) => typeof s?.source === 'string' && !s.source.startsWith('__device__:'))
+      const sessionTotal = sourceRows.reduce((sum, s) => sum + (s.sessions ?? 0), 0)
+      if (sourceRows.length > 0) {
+        trafficSources = sourceRows.slice(0, 5).map((s, i) => ({
+          name: s.source as string,
+          value: Math.round(
+            s.percentage ?? (sessionTotal > 0 ? ((s.sessions ?? 0) / sessionTotal) * 100 : 0),
+          ),
+          color: colors[i % colors.length],
+        }))
+      }
     }
 
     // Calculate SEO health from real data

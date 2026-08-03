@@ -47,6 +47,12 @@ const ingestRowSchema = z.object({
   avg_session_duration: z.number().nonnegative().optional(),
   sources: z.array(z.unknown()).default([]),
   top_pages: z.array(z.unknown()).default([]),
+  // Optional device split, e.g. [{ device: "mobile", sessions: 12 }]. Stored inside
+  // the traffic_sources jsonb with a reserved "__device__:" prefix (no schema change);
+  // the monthly-reports cron splits them back out into metrics.device_split.
+  devices: z
+    .array(z.object({ device: z.string().min(1), sessions: z.number().int().nonnegative() }))
+    .default([]),
 })
 
 const ingestBodySchema = z.union([ingestRowSchema, z.array(ingestRowSchema).min(1).max(500)])
@@ -115,7 +121,10 @@ export async function POST(request: NextRequest) {
       ...(r.avg_session_duration !== undefined
         ? { avg_session_duration: r.avg_session_duration }
         : {}),
-      traffic_sources: r.sources,
+      traffic_sources: [
+        ...r.sources,
+        ...r.devices.map((d) => ({ source: `__device__:${d.device}`, sessions: d.sessions })),
+      ],
       top_pages: r.top_pages,
       // Marks the writer; distinguishes pushed rows from GA4-synced ones.
       property_id: 'ingest',
