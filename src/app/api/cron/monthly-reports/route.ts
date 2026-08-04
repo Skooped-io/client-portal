@@ -496,8 +496,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // One owner digest, never client emails. Failure logged, run still succeeds.
-  const emailSent = digest.length > 0 ? await sendOwnerDigest(periodLabel, digest) : false
+  // One owner digest per month, never client emails. Failure logged, run still succeeds.
+  //
+  // Gated on the run having actually DONE something (2026-08-03): a run where every
+  // client came back 'existing' produces nothing new to look at, so it stays silent.
+  // Without this, any extra invocation re-notified Joseph about reports he already had:
+  // moving the schedule from the 1st to the 3rd mid-August made the cron fire twice and
+  // sent a duplicate digest on 8/3 whose seven rows all read "already existed". A manual
+  // re-trigger did the same on 8/2. Failures still notify even when nothing generated,
+  // so a broken run is never silent.
+  const worthEmailing = generated > 0 || failed > 0
+  const emailSent =
+    worthEmailing && digest.length > 0 ? await sendOwnerDigest(periodLabel, digest) : false
 
   ops.info('system', 'cron.monthly_reports.completed', 'completed', {
     metadata: { generated, skipped, failed, email_sent: emailSent, period: periodLabel },
