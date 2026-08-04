@@ -2,9 +2,13 @@
 -- Retire the Jake-era persona roster on public.agent_activity
 -- ═══════════════════════════════════════════════════════════════════════════
 --
--- STATUS: UNAPPLIED as of 2026-08-04.
+-- STATUS: APPLIED 2026-08-04 against project btwrcfzphkwrvcqoyhym (Supabase SQL editor).
+--   Verified afterwards through PostgREST: agent='skooped' is accepted (204), while
+--   agent='riley' and agent='cooper' are both rejected with 23514 on
+--   agent_activity_agent_check, and all 18 rows read 'system'.
+--   Note: the editor UI sat on "Running..." indefinitely, but the DDL had committed.
 --
--- Run this by hand in the Supabase SQL editor for project btwrcfzphkwrvcqoyhym:
+-- Was run by hand in the Supabase SQL editor for project btwrcfzphkwrvcqoyhym:
 --   https://supabase.com/dashboard/project/btwrcfzphkwrvcqoyhym/sql/new
 --
 -- What it does:
