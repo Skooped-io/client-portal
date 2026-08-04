@@ -1,7 +1,7 @@
 # Security Review — Client Portal
 
 **Date:** 2026-03-16  
-**Reviewer:** Mark (Security Chief, Skooped.io)  
+**Reviewer:** Skooped  
 **Scope:** Full security audit of `builds/client-portal`
 
 ---
@@ -244,9 +244,3 @@ Current setting is `SameSite=Lax`. For the OAuth state cookies, `Strict` would b
 | `next.config.ts` | Added security headers, fixed allowedOrigins |
 | `.env.example` | Added 6 missing variables, corrected key names |
 | `docs/SECURITY-REVIEW.md` | This file |
-
----
-
-— Mark  
-Security Chief, Skooped.io  
-2026-03-16

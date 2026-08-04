@@ -19,7 +19,7 @@ BEGIN
       round((9.5 - (30 - i) * 0.06)::numeric, 2),
       '[{"query":"roofing contractor franklin tn","clicks":22,"impressions":420,"ctr":0.052,"position":3.2},{"query":"roof repair near me","clicks":17,"impressions":380,"ctr":0.041,"position":5.1},{"query":"best roofer franklin","clicks":13,"impressions":290,"ctr":0.038,"position":4.7},{"query":"emergency roof repair tn","clicks":9,"impressions":210,"ctr":0.035,"position":7.3},{"query":"metal roofing installation","clicks":7,"impressions":190,"ctr":0.031,"position":9.1}]'::jsonb,
       '[{"page":"/","clicks":42,"impressions":1300},{"page":"/services","clicks":28,"impressions":620},{"page":"/contact","clicks":19,"impressions":410},{"page":"/about","clicks":11,"impressions":310}]'::jsonb,
-      'https://jakes-roofingco.skooped.io'
+      'https://summit-roofingco.skooped.io'
     ) ON CONFLICT (org_id, date) DO NOTHING;
   END LOOP;
 
@@ -92,23 +92,23 @@ BEGIN
 
   -- Agent Activity
   INSERT INTO agent_activity (org_id, agent, action_type, description, created_at) VALUES
-    (oid, 'scout', 'data_sync', 'Daily data sync: Search Console, Business Profile, Analytics', now() - interval '2 hours'),
-    (oid, 'scout', 'seo_audit', 'Weekly SEO audit completed. Health score: 78%', now() - interval '6 hours'),
-    (oid, 'scout', 'keyword_tracking', 'Tracked 5 keywords. "roofing contractor franklin tn" moved from #5 to #3', now() - interval '1 day'),
-    (oid, 'bob', 'site_deploy', 'Website deployed to jakes-roofingco.skooped.io', now() - interval '2 days'),
-    (oid, 'bob', 'site_update', 'Updated business hours on website', now() - interval '3 days'),
-    (oid, 'scout', 'data_sync', 'Daily data sync: Search Console, Analytics', now() - interval '1 day 2 hours'),
-    (oid, 'cooper', 'onboarding', 'New client onboarded: Jake''s RoofingCo', now() - interval '5 days'),
-    (oid, 'scout', 'gbp_review', 'New 5-star review detected from Sarah M.', now() - interval '4 days'),
-    (oid, 'sierra', 'content_post', 'Scheduled Instagram post: "New roof installation in Franklin!"', now() - interval '3 days'),
-    (oid, 'scout', 'ranking_alert', 'Position improved: "best roofer franklin" from #7 to #5', now() - interval '5 days'),
-    (oid, 'bob', 'performance_check', 'Lighthouse score: 94/100. Core Web Vitals: all green', now() - interval '6 days'),
-    (oid, 'riley', 'report_generated', 'Weekly performance report generated', now() - interval '7 days'),
-    (oid, 'cooper', 'client_message', 'Responded to client inquiry about service areas', now() - interval '4 days');
+    (oid, 'system', 'data_sync', 'Daily data sync: Search Console, Business Profile, Analytics', now() - interval '2 hours'),
+    (oid, 'system', 'seo_audit', 'Weekly SEO audit completed. Health score: 78%', now() - interval '6 hours'),
+    (oid, 'system', 'keyword_tracking', 'Tracked 5 keywords. "roofing contractor franklin tn" moved from #5 to #3', now() - interval '1 day'),
+    (oid, 'system', 'site_deploy', 'Website deployed to summit-roofingco.skooped.io', now() - interval '2 days'),
+    (oid, 'system', 'site_update', 'Updated business hours on website', now() - interval '3 days'),
+    (oid, 'system', 'data_sync', 'Daily data sync: Search Console, Analytics', now() - interval '1 day 2 hours'),
+    (oid, 'system', 'onboarding', 'New client onboarded: Summit RoofingCo', now() - interval '5 days'),
+    (oid, 'system', 'gbp_review', 'New 5-star review detected from Sarah M.', now() - interval '4 days'),
+    (oid, 'system', 'content_post', 'Scheduled Instagram post: "New roof installation in Franklin!"', now() - interval '3 days'),
+    (oid, 'system', 'ranking_alert', 'Position improved: "best roofer franklin" from #7 to #5', now() - interval '5 days'),
+    (oid, 'system', 'performance_check', 'Lighthouse score: 94/100. Core Web Vitals: all green', now() - interval '6 days'),
+    (oid, 'system', 'report_generated', 'Weekly performance report generated', now() - interval '7 days'),
+    (oid, 'system', 'client_message', 'Responded to client inquiry about service areas', now() - interval '4 days');
 
   -- Site Deployment
   INSERT INTO site_deployments (org_id, site_url, repo_name, status, template, deployed_at)
-  VALUES (oid, 'https://jakes-roofingco.skooped.io', 'site-jakes-roofingco', 'live', 'Roofing', now() - interval '5 days');
+  VALUES (oid, 'https://summit-roofingco.skooped.io', 'site-summit-roofingco', 'live', 'Roofing', now() - interval '5 days');
 
   -- Reports
   INSERT INTO reports (org_id, report_type, period_start, period_end, summary, metrics, highlights) VALUES

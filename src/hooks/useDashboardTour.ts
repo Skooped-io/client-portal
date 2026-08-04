@@ -54,7 +54,7 @@ export function useDashboardTour(isReady: boolean = true) {
         element: '#content-calendar',
         popover: {
           title: '📅 Content Calendar',
-          description: 'See what\'s scheduled across your Instagram, Facebook, and Google Business posts for the next 7 days. Sierra keeps your feed fresh.',
+          description: 'See what\'s scheduled across your Instagram, Facebook, and Google Business posts for the next 7 days. Skooped keeps your feed fresh.',
           side: 'top',
           align: 'start',
         },
@@ -63,8 +63,8 @@ export function useDashboardTour(isReady: boolean = true) {
       {
         element: '#agent-activity',
         popover: {
-          title: '🤖 Agent Activity',
-          description: 'Watch your AI team work in real-time. Every action Scout, Sierra, Riley, and the crew take shows up here with status and details.',
+          title: '🤖 Recent Activity',
+          description: 'Watch the work happen in real time. Every action Skooped takes on your account shows up here with status and details.',
           side: 'top',
           align: 'start',
         },

@@ -35,7 +35,7 @@ interface AgentParams {
  * GET /api/agents/[orgId]/meta/facebook
  *
  * Returns Facebook page insights and recent posts.
- * Used by Sierra agent for social content management.
+ * Used by Skooped for social content management.
  */
 export async function GET(request: NextRequest, { params }: AgentParams) {
   if (!verifyServiceApiKey(request)) {

@@ -83,12 +83,12 @@ export default async function WebsitePage() {
 
         <EmptyState
           icon={Globe}
-          title={businessProfile?.template === 'custom-cooper'
+          title={businessProfile?.template === 'custom-build'
             ? "Your custom website is being built"
             : "Your website is being prepared"
           }
-          description={businessProfile?.template === 'custom-cooper'
-            ? "Cooper and Jake are working on your custom site. You'll get an email when it's ready!"
+          description={businessProfile?.template === 'custom-build'
+            ? "We're working on your custom site. You'll get an email when it's ready!"
             : "Your website will be deployed automatically after your subscription starts. Check back soon!"
           }
         />

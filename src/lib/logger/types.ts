@@ -1,15 +1,6 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical'
 
-export type AgentName =
-  | 'cooper'
-  | 'scout'
-  | 'bob'
-  | 'sierra'
-  | 'riley'
-  | 'mark'
-  | 'sandra'
-  | 'red'
-  | 'system'
+export type AgentName = 'skooped' | 'system'
 
 export type LogStatus = 'started' | 'completed' | 'failed' | 'skipped'
 

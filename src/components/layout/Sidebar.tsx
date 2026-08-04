@@ -18,18 +18,17 @@ import {
   LogOut,
   Menu,
   X,
-  Users,
   FileText,
   Pencil,
   Activity,
 } from 'lucide-react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { logoutAction } from '@/app/(portal)/actions'
 import { cn } from '@/lib/utils'
 import { getInitials } from '@/lib/utils'
-import { sidebarLabelVariants, avatarBreathe } from '@/lib/animations/variants'
+import { sidebarLabelVariants } from '@/lib/animations/variants'
 
 // ===== Scoop icon for sidebar header accent =====
 
@@ -58,64 +57,8 @@ const navItems = [
   { label: 'Website',        href: '/website',   icon: Globe,            tourId: undefined },
   { label: 'Activity',       href: '/activity',  icon: Activity,         tourId: undefined },
   { label: 'Reports',        href: '/reports',   icon: FileText,         tourId: undefined },
-  { label: 'Team',           href: '/team',      icon: Users,            tourId: undefined },
   { label: 'Messages',       href: '/messages',  icon: MessageSquare,    tourId: 'tour-nav-messages' },
   { label: 'Settings',       href: '/settings',  icon: Settings,         tourId: undefined },
-]
-
-// ===== Agent definitions — shown at bottom of sidebar as avatars =====
-
-interface AgentConfig {
-  id: string
-  name: string
-  role: string
-  color: string
-  initials: string
-  /** Path to avatar image (public dir) */
-  avatar?: string
-}
-
-const agents: AgentConfig[] = [
-  {
-    id: 'cooper',
-    name: 'Cooper',
-    role: 'Orchestrator',
-    color: '#D94A7A',
-    initials: 'CO',
-    avatar: '/agents/cooper.png',
-  },
-  {
-    id: 'scout',
-    name: 'Scout',
-    role: 'SEO & Ads',
-    color: '#5B8DEF',
-    initials: 'SC',
-    avatar: '/agents/scout.png',
-  },
-  {
-    id: 'sierra',
-    name: 'Sierra',
-    role: 'Social Media',
-    color: '#C99035',
-    initials: 'SI',
-    avatar: '/agents/sierra.png',
-  },
-  {
-    id: 'riley',
-    name: 'Riley',
-    role: 'Reports',
-    color: '#4CAF50',
-    initials: 'RI',
-    avatar: '/agents/riley.png',
-  },
-  {
-    id: 'bob',
-    name: 'Bob',
-    role: 'Builder',
-    color: '#6E3D20',
-    initials: 'BO',
-    avatar: '/agents/bob.png',
-  },
 ]
 
 // ===== Sub-components =====
@@ -185,68 +128,6 @@ function NavItem({ item, isActive, isCollapsed }: NavItemProps) {
   }
 
   return content
-}
-
-// ===== Agent Avatar Strip =====
-
-function AgentAvatarStrip({ isCollapsed }: { isCollapsed: boolean }) {
-  return (
-    <div
-      className={cn(
-        'border-t border-border pt-3 pb-1',
-        isCollapsed ? 'px-3' : 'px-4',
-      )}
-    >
-      {!isCollapsed && (
-        <div className="flex items-center gap-1.5 mb-2 px-1">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Your AI Team</span>
-          {/* Live indicator */}
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-          </span>
-        </div>
-      )}
-      <div className={cn('flex', isCollapsed ? 'flex-col gap-2 items-center' : 'flex-wrap gap-1.5')}>
-        {agents.map((agent) => (
-          <Tooltip key={agent.id}>
-            <TooltipTrigger asChild>
-              <motion.div
-                variants={avatarBreathe}
-                animate="animate"
-                style={{ animationDelay: `${agents.indexOf(agent) * 0.6}s` }}
-                className="cursor-pointer"
-              >
-                <Avatar
-                  className={cn(
-                    'border-2 ring-0 transition-shadow hover:ring-2 hover:ring-offset-1',
-                    isCollapsed ? 'h-8 w-8' : 'h-7 w-7',
-                  )}
-                  style={{
-                    borderColor: agent.color,
-                    // @ts-expect-error CSS custom property
-                    '--tw-ring-color': agent.color,
-                  }}
-                >
-                  <AvatarImage src={agent.avatar} alt={agent.name} />
-                  <AvatarFallback
-                    className="text-[9px] font-bold text-white"
-                    style={{ backgroundColor: agent.color }}
-                  >
-                    {agent.initials}
-                  </AvatarFallback>
-                </Avatar>
-              </motion.div>
-            </TooltipTrigger>
-            <TooltipContent side={isCollapsed ? 'right' : 'top'} className="text-xs">
-              <p className="font-medium">{agent.name}</p>
-              <p className="text-muted-foreground">{agent.role}</p>
-            </TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 // ===== Main Sidebar Content =====
@@ -332,11 +213,6 @@ function SidebarContent({
         </TooltipProvider>
       </nav>
 
-      {/* ===== Agent Avatars ===== */}
-      <TooltipProvider delayDuration={300}>
-        <AgentAvatarStrip isCollapsed={isCollapsed} />
-      </TooltipProvider>
-
       {/* ===== User Footer ===== */}
       <div
         className={cn(
@@ -405,7 +281,7 @@ const mobileNavItems = [
   { label: 'SEO', href: '/seo', icon: Search },
   { label: 'Ads', href: '/ads', icon: Megaphone },
   { label: 'Content', href: '/content', icon: Pencil },
-  { label: 'Team', href: '/team', icon: Users },
+  { label: 'Reports', href: '/reports', icon: FileText },
 ]
 
 function MobileBottomNav() {

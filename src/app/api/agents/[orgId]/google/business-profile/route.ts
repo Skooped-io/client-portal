@@ -54,7 +54,7 @@ async function gbpFetch<T>(
  * GET /api/agents/[orgId]/google/business-profile
  *
  * Returns Google Business Profile data (location info + reviews with rating).
- * Used by Sierra agent to manage the GBP listing.
+ * Used by Skooped to manage the GBP listing.
  *
  * Metadata keys read from oauth_connections.metadata:
  *   - gbp_account_name:  e.g. "accounts/123456789"      (auto-discovered if absent)

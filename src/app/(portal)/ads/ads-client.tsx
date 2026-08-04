@@ -88,7 +88,7 @@ const leadsData = [
   { id: 4, name: 'Sarah Mitchell', source: 'Google Ads', status: 'won', date: 'Mar 12, 2026', phone: '(615) 555-0358' },
   { id: 5, name: 'Robert Nguyen', source: 'LSA', status: 'new', date: 'Mar 11, 2026', phone: '(615) 555-0472' },
   { id: 6, name: 'Amanda Foster', source: 'Google Ads', status: 'lost', date: 'Mar 10, 2026', phone: '(629) 555-0589' },
-  { id: 7, name: 'James Cooper', source: 'LSA', status: 'quoted', date: 'Mar 9, 2026', phone: '(615) 555-0614' },
+  { id: 7, name: 'James Whitfield', source: 'LSA', status: 'quoted', date: 'Mar 9, 2026', phone: '(615) 555-0614' },
 ]
 
 const funnelStages = [

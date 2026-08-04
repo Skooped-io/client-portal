@@ -3,6 +3,7 @@ import { getCurrentOrgId } from '@/lib/supabase/helpers'
 
 export interface AgentActivityRow {
   id: string
+  /** DB column kept for schema compatibility. New rows are always written as 'system'. */
   agent: string
   action_type: string
   description: string | null

@@ -41,7 +41,7 @@ function getHttpStatus(err: unknown): number | undefined {
  * GET /api/agents/[orgId]/google/search-console
  *
  * Returns Google Search Console data for the org.
- * Used by Scout agent to track search performance.
+ * Used by Skooped to track search performance.
  *
  * Query params:
  *   - startDate: ISO date string (default: 29 days ago — accounts for GSC 2-day lag)

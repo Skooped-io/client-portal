@@ -21,14 +21,14 @@ const DEMO_INSIGHTS: AIInsight[] = [
   {
     id: '1',
     title: 'Keyword opportunity detected',
-    message: 'Your top keyword dropped 3 spots this week. Competitors added 8 new backlinks. I recommend updating your service page with 3 specific phrases that are trending in your area.',
+    message: 'Your top keyword dropped 3 spots this week. Competitors added 8 new backlinks. We recommend updating your service page with 3 specific phrases that are trending in your area.',
     priority: 'high',
     actions: { apply: 'Update My Page', learnMore: 'Why This Matters' },
   },
   {
     id: '2',
     title: 'Best time to post this week',
-    message: 'Your audience is most active Tuesday–Thursday between 6–8 PM. I scheduled your next 3 posts accordingly for maximum reach.',
+    message: 'Your audience is most active Tuesday to Thursday between 6 and 8 PM. We scheduled your next 3 posts accordingly for maximum reach.',
     priority: 'medium',
     actions: { apply: 'View Schedule' },
   },
@@ -70,16 +70,16 @@ function InsightCard({ insight, onDismiss }: InsightCardProps) {
         <X className="w-3.5 h-3.5" />
       </button>
 
-      {/* Cooper avatar + name */}
+      {/* Skooped mark + label */}
       <div className="flex items-center gap-2.5 mb-3 pr-6">
         <div
           className="w-8 h-8 rounded-full bg-strawberry/15 border border-strawberry/30 flex items-center justify-center shrink-0"
-          aria-label="Cooper"
+          aria-label="Skooped"
         >
           <Sparkles className="w-4 h-4 text-strawberry" />
         </div>
         <div>
-          <p className="text-xs font-semibold text-foreground">Cooper</p>
+          <p className="text-xs font-semibold text-foreground">Skooped</p>
           <p className="text-[10px] text-muted-foreground">AI Insight</p>
         </div>
       </div>
@@ -172,7 +172,7 @@ export function AIInsightsPanel({ insights, className }: AIInsightsPanelProps) {
             <Sparkles className="w-8 h-8 text-muted-foreground/40 mb-2" />
             <p className="text-sm text-muted-foreground font-medium">All caught up!</p>
             <p className="text-xs text-muted-foreground/60 mt-1">
-              Cooper will surface new insights when there&apos;s something to act on.
+              Skooped will surface new insights when there&apos;s something to act on.
             </p>
           </motion.div>
         ) : (

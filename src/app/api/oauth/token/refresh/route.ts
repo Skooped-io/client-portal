@@ -8,7 +8,7 @@ import { portal } from '@/lib/logger'
 /**
  * POST /api/oauth/token/refresh
  *
- * Called by Cooper's cron job every 30 minutes.
+ * Called by the Skooped cron job every 30 minutes.
  * Requires SERVICE_API_KEY header for auth.
  *
  * Refreshes tokens that are:

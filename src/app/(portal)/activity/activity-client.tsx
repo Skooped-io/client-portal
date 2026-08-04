@@ -10,23 +10,13 @@ import { cn } from '@/lib/utils'
 import { stagger, slideUp } from '@/lib/animations/variants'
 import {
   type BotActivity,
-  type AgentId,
   type ActionType,
-  AGENT_CONFIG,
   ACTION_CONFIG,
   DEMO_BOT_ACTIVITIES,
+  SKOOPED_IDENTITY,
 } from '@/lib/activity-demo-data'
 
 // ===== Filter options =====
-
-const AGENT_FILTERS: Array<{ value: 'all' | AgentId; label: string }> = [
-  { value: 'all', label: 'All agents' },
-  { value: 'scout', label: 'Scout' },
-  { value: 'sierra', label: 'Sierra' },
-  { value: 'riley', label: 'Riley' },
-  { value: 'bob', label: 'Bob' },
-  { value: 'cooper', label: 'Cooper' },
-]
 
 const TYPE_FILTERS: Array<{ value: 'all' | ActionType; label: string }> = [
   { value: 'all', label: 'All types' },
@@ -50,7 +40,6 @@ interface ActivityRowProps {
 
 function ActivityRow({ activity, isUnread, onRead }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false)
-  const agent = AGENT_CONFIG[activity.agent]
   const action = ACTION_CONFIG[activity.action_type]
   const timeAgo = formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })
 
@@ -73,22 +62,22 @@ function ActivityRow({ activity, isUnread, onRead }: ActivityRowProps) {
         <span className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-strawberry" aria-label="Unread" />
       )}
 
-      {/* Agent avatar */}
+      {/* Skooped avatar */}
       <div
         className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 border mt-0.5"
         style={{
-          color: agent.color,
-          backgroundColor: agent.bg,
-          borderColor: `${agent.color}30`,
+          color: SKOOPED_IDENTITY.color,
+          backgroundColor: SKOOPED_IDENTITY.bg,
+          borderColor: `${SKOOPED_IDENTITY.color}30`,
         }}
       >
-        {agent.initials}
+        {SKOOPED_IDENTITY.initials}
       </div>
 
       <div className="flex-1 min-w-0 pr-4">
         {/* Row header */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-semibold text-foreground">{agent.name}</span>
+          <span className="text-xs font-semibold text-foreground">{SKOOPED_IDENTITY.name}</span>
           <span className="text-[10px] text-muted-foreground/60">·</span>
           <span className="text-[10px] text-muted-foreground/70">{action.icon} {action.label}</span>
           <span className="ml-auto text-[10px] text-muted-foreground/60 whitespace-nowrap shrink-0">{timeAgo}</span>
@@ -167,19 +156,15 @@ function FilterPill({ active, onClick, children }: FilterPillProps) {
 export default function ActivityPage({ initialActivities }: { initialActivities?: BotActivity[] } = {}) {
   const activities = initialActivities ?? DEMO_BOT_ACTIVITIES
 
-  const [agentFilter, setAgentFilter] = useState<'all' | AgentId>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | ActionType>('all')
   const [readIds, setReadIds] = useState<Set<string>>(
     () => new Set(activities.filter((a) => a.read).map((a) => a.id)),
   )
 
   const filtered = useMemo(() => {
-    return activities.filter((a) => {
-      if (agentFilter !== 'all' && a.agent !== agentFilter) return false
-      if (typeFilter !== 'all' && a.action_type !== typeFilter) return false
-      return true
-    })
-  }, [activities, agentFilter, typeFilter])
+    if (typeFilter === 'all') return activities
+    return activities.filter((a) => a.action_type === typeFilter)
+  }, [activities, typeFilter])
 
   const unreadCount = filtered.filter((a) => !readIds.has(a.id)).length
 
@@ -220,23 +205,7 @@ export default function ActivityPage({ initialActivities }: { initialActivities?
 
       {/* Filters */}
       <Card className="bg-card border-border rounded-xl">
-        <CardContent className="pt-4 pb-4 space-y-3">
-          {/* Agent filter */}
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0 w-14">Agent</span>
-            <div className="flex items-center gap-1.5 flex-nowrap">
-              {AGENT_FILTERS.map((f) => (
-                <FilterPill
-                  key={f.value}
-                  active={agentFilter === f.value}
-                  onClick={() => setAgentFilter(f.value as 'all' | AgentId)}
-                >
-                  {f.label}
-                </FilterPill>
-              ))}
-            </div>
-          </div>
-
+        <CardContent className="pt-4 pb-4">
           {/* Type filter */}
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0 w-14">Type</span>
@@ -278,7 +247,7 @@ export default function ActivityPage({ initialActivities }: { initialActivities?
               </div>
               <h3 className="font-nunito font-semibold text-foreground mb-2">No activity yet</h3>
               <p className="text-muted-foreground text-sm max-w-sm">
-                Try changing your filters, or check back soon — your team is working on it.
+                Try changing your filters, or check back soon. Skooped is working on it.
               </p>
             </div>
           ) : (

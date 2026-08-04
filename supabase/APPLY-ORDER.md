@@ -1,8 +1,7 @@
 # Applying the migrations to Supabase project `btwrcfzphkwrvcqoyhym`
 
-The live DB is empty except a legacy 1-row `public.clients` table (no code
-references it). No migration has ever been applied. Apply all four files via
-the SQL editor (https://supabase.com/dashboard/project/btwrcfzphkwrvcqoyhym/sql/new),
+Apply the files via the SQL editor
+(https://supabase.com/dashboard/project/btwrcfzphkwrvcqoyhym/sql/new),
 one file per run, in exactly this order:
 
 | # | File | What it creates | Idempotent? |
@@ -11,14 +10,20 @@ one file per run, in exactly this order:
 | 2 | `migrations/20260315000000_onboarding_oauth.sql` | onboarding_progress, oauth_connections, triggers, RLS | **No** — bare `CREATE TABLE` / `CREATE INDEX` / `CREATE POLICY` / `CREATE TRIGGER`; a second run fails on the first `CREATE TABLE`. Run once |
 | 3 | `migrations/20260323000000_metric_tables.sql` | seo/analytics/gbp/ads/social metrics, agent_activity, site_deployments, content_posts, reports, RLS | **Partial** — tables and indexes are `IF NOT EXISTS`, but the `CREATE POLICY` statements are not guarded; a second run fails at the first policy. Run once |
 | 4 | `migrations/20260728000000_report_share_tokens.sql` | `reports.share_token` column + partial unique index | **Yes** — `ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS` |
+| 5 | `migrations/20260804000000_retire_agent_personas.sql` | relabels `agent_activity.agent` rows to `system`, swaps the CHECK constraint to `('skooped','system')` | **Yes** — one guarded `DO` block; drops the constraint by lookup before recreating it. **UNAPPLIED as of 2026-08-04** |
 
 Order matters: 2 and 3 both have FKs and policies against
 `organizations(id)` / `organization_members`, created only by 1.
 4 alters `reports`, created only by 3.
+5 alters `agent_activity`, created only by 3.
 
 ## Notes
 
-- **Concatenation:** you can also paste all four files into a single SQL-editor
+- **Persona retirement (step 5):** the portal writes the literal `'system'` into
+  `agent_activity`, so every route works whether or not step 5 has run. Running
+  it is what makes the old persona values (`cooper`, `scout`, `bob`, `sierra`,
+  `riley`, `mark`, `sandra`, `red`) impossible to insert again.
+- **Concatenation:** you can also paste the files into a single SQL-editor
   run in the order above; each file is a plain SQL script with no `BEGIN/COMMIT`
   of its own (the editor wraps the run in one transaction, so a failure rolls
   back everything — safe).
@@ -40,6 +45,6 @@ Order matters: 2 and 3 both have FKs and policies against
   context there is no session, so RLS will block the upsert. The route should
   use `createAdminClient()`. Schema matches the route's own DDL comment either
   way.
-- **Seeding test data:** after all four migrations, `scripts/seed-test-metrics.sql`
+- **Seeding test data:** after all five migrations, `scripts/seed-test-metrics.sql`
   seeds 30 days of metrics for a hard-coded org id — insert an `organizations`
   row with that id first, or edit `oid` at the top of the script.

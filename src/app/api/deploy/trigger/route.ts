@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     // Log activity
     await admin.from('agent_activity').insert({
       org_id: orgId,
-      agent: 'bob',
+      agent: 'system',
       action_type: 'site_redeploy',
       description: 'Website re-deploy triggered from dashboard',
       metadata: { triggered_by: user.id, previous_url: existingDeploy.site_url },

@@ -54,7 +54,7 @@ interface AdsApiRow {
  * GET /api/agents/[orgId]/google/ads
  *
  * Returns Google Ads campaign data (spend, impressions, clicks, conversions).
- * Used by Riley agent to manage and report on paid campaigns.
+ * Used by Skooped to manage and report on paid campaigns.
  *
  * Query params:
  *   - startDate: ISO date string (default: 28 days ago)

@@ -108,7 +108,7 @@ export function PlanSelectionStep({ businessProfile, onBack }: PlanSelectionStep
               Concierge Onboarding
             </h3>
             <p className="text-sm text-muted-foreground font-dm-sans max-w-sm">
-              We&apos;ll reach out to set up a call with Jake to build your custom marketing
+              We&apos;ll reach out to set up a call with Joseph to build your custom marketing
               strategy. No payment needed today.
             </p>
           </div>

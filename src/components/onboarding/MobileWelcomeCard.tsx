@@ -46,7 +46,7 @@ export function MobileWelcomeCard({ show, onDismiss }: MobileWelcomeCardProps) {
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-base leading-none mt-0.5">💬</span>
-                  <span>Ask Cooper anything using the chat button</span>
+                  <span>Ask Skooped anything using the chat button</span>
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-base leading-none mt-0.5">📈</span>

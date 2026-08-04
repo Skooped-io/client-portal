@@ -10,30 +10,28 @@ import { cn } from '@/lib/utils'
 import { stagger, slideUp } from '@/lib/animations/variants'
 import {
   type BotActivity,
-  type AgentId,
   type ActionType,
-  AGENT_CONFIG,
   ACTION_CONFIG,
   DEMO_BOT_ACTIVITIES,
+  SKOOPED_IDENTITY,
 } from '@/lib/activity-demo-data'
 
 // Re-export for consumers
-export type { BotActivity, AgentId, ActionType }
+export type { BotActivity, ActionType }
 
 // ===== Sub-components =====
 
-function AgentAvatar({ agentId }: { agentId: AgentId }) {
-  const agent = AGENT_CONFIG[agentId]
+function SkoopedAvatar() {
   return (
     <div
       className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 border"
       style={{
-        color: agent.color,
-        backgroundColor: agent.bg,
-        borderColor: `${agent.color}30`,
+        color: SKOOPED_IDENTITY.color,
+        backgroundColor: SKOOPED_IDENTITY.bg,
+        borderColor: `${SKOOPED_IDENTITY.color}30`,
       }}
     >
-      {agent.initials}
+      {SKOOPED_IDENTITY.initials}
     </div>
   )
 }
@@ -46,7 +44,6 @@ interface ActivityCardProps {
 
 function ActivityCard({ activity, isUnread, onRead }: ActivityCardProps) {
   const [expanded, setExpanded] = useState(false)
-  const agent = AGENT_CONFIG[activity.agent]
   const action = ACTION_CONFIG[activity.action_type]
   const timeAgo = formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })
 
@@ -73,12 +70,12 @@ function ActivityCard({ activity, isUnread, onRead }: ActivityCardProps) {
         />
       )}
 
-      <AgentAvatar agentId={activity.agent} />
+      <SkoopedAvatar />
 
       <div className="flex-1 min-w-0 pr-4">
         {/* Header */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-semibold text-foreground">{agent.name}</span>
+          <span className="text-xs font-semibold text-foreground">{SKOOPED_IDENTITY.name}</span>
           <span className="text-[10px] text-muted-foreground/60">·</span>
           <span className="text-[10px] text-muted-foreground/70">{action.icon} {action.label}</span>
           <span className="ml-auto text-[10px] text-muted-foreground/60 whitespace-nowrap">{timeAgo}</span>

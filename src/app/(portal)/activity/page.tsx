@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentOrgId } from '@/lib/supabase/helpers'
 import ActivityPage from './activity-client'
-import type { BotActivity, AgentId, ActionType } from '@/lib/activity-demo-data'
+import type { BotActivity, ActionType } from '@/lib/activity-demo-data'
 
 export const metadata: Metadata = { title: 'Activity' }
 export const revalidate = 300
@@ -30,8 +30,6 @@ const ACTION_TYPE_MAP: Record<string, ActionType> = {
   deploy_failed: 'website_health',
 }
 
-const VALID_AGENTS: AgentId[] = ['scout', 'bob', 'sierra', 'riley', 'cooper']
-
 export default async function ActivityServerPage() {
   const supabase = await createClient()
   const orgId = await getCurrentOrgId(supabase)
@@ -40,7 +38,7 @@ export default async function ActivityServerPage() {
 
   const { data: rows } = await supabase
     .from('agent_activity')
-    .select('id, agent, action_type, description, metadata, created_at')
+    .select('id, action_type, description, metadata, created_at')
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -50,7 +48,6 @@ export default async function ActivityServerPage() {
   const activities: BotActivity[] = rows.map(row => ({
     id: row.id,
     org_id: orgId,
-    agent: (VALID_AGENTS.includes(row.agent as AgentId) ? row.agent : 'cooper') as AgentId,
     action_type: ACTION_TYPE_MAP[row.action_type] ?? 'team_message',
     title: row.action_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
     description: row.description ?? '',

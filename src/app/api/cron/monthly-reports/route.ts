@@ -474,7 +474,7 @@ export async function GET(request: NextRequest) {
 
       await supabase.from('agent_activity').insert({
         org_id: orgId,
-        agent: 'riley',
+        agent: 'system',
         action_type: 'report_generated',
         description: `Monthly performance report generated (${periodLabel})`,
         metadata: { period_start: periodStart, period_end: periodEnd, report_type: 'monthly' },

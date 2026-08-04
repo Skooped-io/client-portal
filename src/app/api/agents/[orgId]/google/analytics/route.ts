@@ -52,7 +52,7 @@ function getHttpStatus(err: unknown): number | undefined {
  * GET /api/agents/[orgId]/google/analytics
  *
  * Returns Google Analytics 4 data (sessions, pageviews, users).
- * Used by Scout agent to track website performance.
+ * Used by Skooped to track website performance.
  *
  * Query params:
  *   - startDate: ISO date string (default: 28 days ago)

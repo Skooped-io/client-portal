@@ -26,12 +26,12 @@ const issueUrl = (repo: ProjectRepo, num: number): string =>
   `https://github.com/Skooped-io/${repo}/issues/${num}`
 
 // ============================================
-// OPS LOGGER — agent team activity
+// OPS LOGGER: Skooped automation activity
 // → skooped-ops dataset
 // ============================================
 
 export const ops = {
-  /** Log an agent action */
+  /** Log an automated action */
   info: (agent: AgentName, action: string, status: LogStatus, options?: Partial<SkoopedLogEntry>) => {
     const entry = { timestamp: ts(), level: 'info', agent, action, status, ...options }
     send(DATASETS.ops, entry)
@@ -55,7 +55,7 @@ export const ops = {
     return entry
   },
 
-  /** Log a project-scoped agent task with full context */
+  /** Log a project-scoped task with full context */
   task: (agent: AgentName, action: string, status: LogStatus, context: WorkContext, options?: Partial<SkoopedLogEntry>) => {
     const entry = {
       timestamp: ts(),

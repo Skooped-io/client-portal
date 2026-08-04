@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
   // Log activity
   await supabase.from('agent_activity').insert({
     org_id: orgId,
-    agent: 'cooper',
+    agent: 'system',
     action_type: 'contact_received',
     description: `New contact form submission from ${name}`,
     metadata: { name, email, phone, message_preview: message.slice(0, 100) },

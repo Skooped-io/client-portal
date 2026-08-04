@@ -11,7 +11,7 @@ interface AgentParams {
  * GET /api/agents/[orgId]/custom-prompt
  *
  * Generates a Lovable-ready build prompt from the client's business profile.
- * Used by Cooper/Jake when building custom sites in Lovable.
+ * Used by Skooped when building custom sites in Lovable.
  * Requires SERVICE_API_KEY header.
  */
 export async function GET(request: NextRequest, { params }: AgentParams) {

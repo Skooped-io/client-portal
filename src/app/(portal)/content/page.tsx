@@ -642,7 +642,7 @@ export default function ContentPage() {
               <CardContent>
                 <DragDropZone />
                 <p className="text-xs text-muted-foreground text-center mt-3">
-                  Uploaded files go to Sierra to schedule and caption
+                  Uploaded files go to Skooped to schedule and caption
                 </p>
               </CardContent>
             </Card>

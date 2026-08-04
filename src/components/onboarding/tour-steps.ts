@@ -14,13 +14,13 @@ export const TOUR_STEPS: TourStep[] = [
     id: 'dashboard',
     targetId: 'tour-nav-dashboard',
     title: 'Your command center',
-    description: 'Everything about your business at a glance — traffic, rankings, social posts, and your AI team working in real time.',
+    description: 'Everything about your business at a glance: traffic, rankings, social posts, and the work Skooped is doing in real time.',
   },
   {
     id: 'seo',
     targetId: 'tour-nav-seo',
     title: 'SEO & rankings',
-    description: 'We monitor your Google rankings and search performance here. Watch your keywords climb as Scout gets to work.',
+    description: 'We monitor your Google rankings and search performance here. Watch your keywords climb as Skooped gets to work.',
   },
   {
     id: 'analytics',
@@ -38,7 +38,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: 'social',
     targetId: 'tour-nav-social',
     title: 'Content & social',
-    description: 'Your Instagram and Facebook content calendar, scheduled posts, and engagement — all managed by Sierra.',
+    description: 'Your Instagram and Facebook content calendar, scheduled posts, and engagement, all managed by Skooped.',
   },
   {
     id: 'messages',

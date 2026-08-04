@@ -108,15 +108,15 @@ export function TemplatePickerStep() {
         })}
       </div>
 
-      {/* Custom Build with Cooper */}
+      {/* Custom Build with Skooped */}
       <motion.button
         type="button"
-        onClick={() => setSelected('custom-cooper')}
+        onClick={() => setSelected('custom-build')}
         whileHover={{ scale: 1.005 }}
         whileTap={{ scale: 0.995 }}
         className={[
           'w-full flex items-start gap-4 p-4 rounded-xl border transition-colors text-left',
-          selected === 'custom-cooper'
+          selected === 'custom-build'
             ? 'border-strawberry bg-strawberry/5'
             : 'border-border bg-background/60 hover:border-strawberry/50',
         ].join(' ')}
@@ -124,38 +124,38 @@ export function TemplatePickerStep() {
         <div
           className={[
             'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5',
-            selected === 'custom-cooper' ? 'bg-strawberry/10' : 'bg-muted',
+            selected === 'custom-build' ? 'bg-strawberry/10' : 'bg-muted',
           ].join(' ')}
         >
           <Sparkles
             className={[
               'w-4 h-4',
-              selected === 'custom-cooper' ? 'text-strawberry' : 'text-muted-foreground',
+              selected === 'custom-build' ? 'text-strawberry' : 'text-muted-foreground',
             ].join(' ')}
           />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-nunito font-bold text-sm text-foreground">
-              Custom Build with Cooper
+              Custom Build with Skooped
             </span>
             <span className="text-xs bg-vanilla/30 text-chocolate px-2 py-0.5 rounded-full font-dm-sans font-medium">
               $299 one-time
             </span>
           </div>
           <p className="text-xs text-muted-foreground font-dm-sans mt-0.5">
-            Work 1-on-1 with Cooper to build a fully custom marketing strategy tailored to your
-            business.
+            Work 1-on-1 with the Skooped team to build a fully custom marketing strategy tailored to
+            your business.
           </p>
         </div>
-        {selected === 'custom-cooper' && (
+        {selected === 'custom-build' && (
           <div className="w-4 h-4 bg-strawberry rounded-full flex items-center justify-center shrink-0 mt-0.5">
             <Check className="w-2.5 h-2.5 text-white" />
           </div>
         )}
       </motion.button>
 
-      {/* Build with Cooper + Jake (Concierge) */}
+      {/* Full-service build with Skooped (Concierge) */}
       <motion.button
         type="button"
         onClick={() => setSelected('concierge')}
@@ -184,7 +184,7 @@ export function TemplatePickerStep() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-nunito font-bold text-sm text-foreground">
-              Build with Cooper + Jake
+              Full-Service Build with Skooped
             </span>
             <span className="text-xs bg-strawberry/10 text-strawberry px-2 py-0.5 rounded-full font-dm-sans font-medium border border-strawberry/20">
               Concierge

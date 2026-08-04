@@ -1,5 +1,5 @@
 # SEO Review — Skooped Client Portal
-**Reviewed by:** Scout (SEO Sub-Agent, Skooped.io)  
+**Reviewed by:** Skooped  
 **Date:** 2026-03-16  
 **URL:** https://portal.skooped.io
 
@@ -88,7 +88,7 @@ Organization schema is injected in `<head>` via `dangerouslySetInnerHTML` in the
 ## What This Portal Is NOT Responsible For
 
 - **Public SEO rankings** — that's `skooped.io`'s job
-- **Google Business Profile** — managed separately via Scout's GBP tooling
+- **Google Business Profile** — managed separately via the Skooped GBP tooling
 - **Keyword targeting** — portal is internal-facing, not a landing page
 
 ---
@@ -98,7 +98,3 @@ Organization schema is injected in `<head>` via `dangerouslySetInnerHTML` in the
 - `src/app/layout.tsx` — Already complete. Metadata, OG tags, JSON-LD all present.
 - `public/robots.txt` — Already complete. Full disallow + belt-and-suspenders entries.
 - `docs/SEO-REVIEW.md` — This file.
-
----
-
-*Scout out. 🫡*

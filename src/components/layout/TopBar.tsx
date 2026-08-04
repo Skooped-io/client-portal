@@ -26,7 +26,7 @@ interface Notification {
 const MOCK_NOTIFICATIONS: Notification[] = [
   {
     id: '1',
-    title: 'Scout updated your keywords',
+    title: 'Keyword tracking updated',
     description: '3 new keywords added to tracking',
     time: '5m ago',
     read: false,
@@ -40,7 +40,7 @@ const MOCK_NOTIFICATIONS: Notification[] = [
   },
   {
     id: '3',
-    title: 'Sierra scheduled 4 posts',
+    title: '4 posts scheduled',
     description: 'Content calendar updated for next week',
     time: '3h ago',
     read: true,

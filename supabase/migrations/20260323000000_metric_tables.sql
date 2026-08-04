@@ -2,7 +2,7 @@
 -- Skooped.io — Metric & Activity Tables
 -- Run: Supabase SQL Editor → paste and execute
 -- Date: 2026-03-23
--- Author: Cooper
+-- Author: Skooped
 -- ============================================================================
 
 -- ─── SEO Metrics (Google Search Console daily snapshots) ─────────────────────
