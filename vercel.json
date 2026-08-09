@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/review-responder",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 11 * * *"
     },
     {
       "path": "/api/cron/gbp-digest",
