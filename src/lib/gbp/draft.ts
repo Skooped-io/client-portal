@@ -28,6 +28,34 @@ export interface DraftInput {
   /** Most recent posted replies for this location, newest first — the
    *  anti-template context the personas require. */
   recentReplies: string[]
+  /** 'retro_negative' = the open-door reply to an old (>60d) <=3★ review
+   *  (policy approved 2026-08-10): present tense only, nothing admitted,
+   *  nothing offered but a phone call. Default 'standard'. */
+  mode?: 'standard' | 'retro_negative'
+  /** The business's public phone — the ONLY contact path a retro-negative
+   *  reply may name. */
+  publicPhone?: string | null
+}
+
+function retroNegativeRules(publicPhone: string | null | undefined): string {
+  const phoneLine = publicPhone
+    ? `- Invite them to call ${publicPhone}. That number is the only contact path. No forms, emails, or links.`
+    : `- Invite them to call the business. No forms, emails, links, or phone numbers you were not given.`
+  return `
+This reply is for an OLD negative review that never got an answer (an "open
+door" reply). It exists for the NEXT reader of the profile, not to relitigate
+the past. On top of the voice rules:
+- Present tense only. NEVER claim any past outreach or fix attempt happened
+  (no "we tried to reach you", "we reached out", "we made this right"). No
+  such attempt is on record, and a false claim is worse than silence.
+- Admit no specific fault. Do not confirm or dispute ANY fact in the review,
+  and do not apologize for a specific failure. "We would rather hear what
+  happened than leave this unanswered" is the ceiling.
+- Offer NOTHING except a conversation. No refunds, discounts, redo work,
+  compensation, or promised outcomes.
+- Acknowledge plainly that the review is from a while back, without dates.
+${phoneLine}
+- 40 to 55 words. Calm, unhurried, zero defensiveness, no exclamation marks.`
 }
 
 export interface DraftResult {
@@ -70,7 +98,10 @@ function buildUserMessage(input: DraftInput, feedback?: string[]): string {
 export async function draftReply(input: DraftInput): Promise<DraftResult> {
   const client = new Anthropic()
   const model = process.env.GBP_DRAFT_MODEL ?? 'claude-opus-4-8'
-  const system = `${input.brandVoice.trim()}\n${GLOBAL_RULES}`
+  const retroNegative = input.mode === 'retro_negative'
+  const system = retroNegative
+    ? `${input.brandVoice.trim()}\n${retroNegativeRules(input.publicPhone)}\n${GLOBAL_RULES}`
+    : `${input.brandVoice.trim()}\n${GLOBAL_RULES}`
 
   let feedback: string[] | undefined
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -88,7 +119,7 @@ export async function draftReply(input: DraftInput): Promise<DraftResult> {
       .map((b) => b.text)
       .join('')
       .trim()
-    const violations = lintReply(text)
+    const violations = lintReply(text, { retroNegative })
     if (violations.length === 0) {
       return { text, violations: [] }
     }

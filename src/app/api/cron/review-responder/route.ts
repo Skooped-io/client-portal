@@ -21,6 +21,13 @@ export const maxDuration = 300
  *     1-2★ draft + hold + IMMEDIATE urgent email.
  *   - Retro posting is paced (retro_weekly_cap per trailing 7 days per
  *     location) and only runs where retro_enabled.
+ *   - Retro NEGATIVES (policy approved 2026-08-10): a <=3★ retro review older
+ *     than RETRO_NEGATIVE_MIN_AGE_DAYS, on a location with
+ *     retro_negative_enabled (one-time blanket client consent), gets an
+ *     "open door" reply (nothing admitted, no past outreach claimed, phone
+ *     call is the only offer) and joins the paced retro queue. A run never
+ *     publishes negatives and positives together. Everywhere the flag is off,
+ *     behavior is unchanged: held forever.
  *   - GBP_DRY_RUN=1: full pipeline, drafts stored, NOTHING posted to Google —
  *     except locations with live_replies = true, which run the live posting
  *     path even under the global dry-run (per-location early-live switch,
@@ -51,6 +58,19 @@ function verifyCron(request: NextRequest): boolean {
 // cadence drains the remainder via 'pending' rows.
 const MAX_DRAFTS_PER_RUN = 12
 
+// A retro negative younger than this is still "fresh": it stays held for the
+// client's account of the facts. Older, the open-door policy applies.
+const RETRO_NEGATIVE_MIN_AGE_DAYS = 60
+
+/** True only when the review's create time is known AND older than the
+ *  threshold — an unknown age is treated as fresh (conservative: held). */
+function isRetroNegativeAge(createTime: string | null | undefined): boolean {
+  if (!createTime) return false
+  const created = Date.parse(createTime)
+  if (Number.isNaN(created)) return false
+  return Date.now() - created > RETRO_NEGATIVE_MIN_AGE_DAYS * 24 * 60 * 60 * 1000
+}
+
 interface LocationRow {
   id: string
   client_key: string
@@ -63,6 +83,8 @@ interface LocationRow {
   retro_weekly_cap: number
   first_synced_at: string | null
   live_replies: boolean
+  retro_negative_enabled: boolean
+  public_phone: string | null
 }
 
 interface ReplyRow {
@@ -209,7 +231,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      if (location.retro_enabled && !locDryRun) {
+      if ((location.retro_enabled || location.retro_negative_enabled) && !locDryRun) {
         summary.retro_posted = await publishRetroBatch(ctx)
       }
 
@@ -295,6 +317,23 @@ async function handleKnownReview(ctx: RunCtx, review: GbpReview, existing: Reply
     return
   }
 
+  // Held RETRO negatives on a location that has since gained blanket consent:
+  // redraft in open-door mode and queue (draftAndRoute re-detects the
+  // retro-negative path and replaces the held draft in place). Live held rows
+  // are untouched — the human gate on fresh negatives is permanent.
+  if (
+    existing.state === 'held' &&
+    existing.classification === 'retro' &&
+    ctx.location.retro_negative_enabled
+  ) {
+    const rating = starValue(review)
+    if (rating > 0 && rating <= 3 && isRetroNegativeAge(review.createTime)) {
+      if (ctx.budget.used >= MAX_DRAFTS_PER_RUN) return // retried next run
+      await draftAndRoute(ctx, review, 'retro', existing)
+      return
+    }
+  }
+
   // posted / held / retro_queued / failed / locked: nothing to do this run.
 }
 
@@ -377,6 +416,15 @@ async function draftAndRoute(
   const { supabase, location, summary } = ctx
   const rating = starValue(review)
 
+  // Open-door path (policy 2026-08-10): old retro negative + client consent.
+  // Decided BEFORE drafting because it changes the drafting rules entirely.
+  const retroNegative =
+    classification === 'retro' &&
+    rating > 0 &&
+    rating <= 3 &&
+    location.retro_negative_enabled &&
+    isRetroNegativeAge(review.createTime)
+
   ctx.budget.used++
   const draft = await draftReply({
     brandVoice: location.brand_voice,
@@ -384,6 +432,8 @@ async function draftAndRoute(
     starRating: rating || 5,
     comment: review.comment ?? null,
     recentReplies: ctx.recentReplies,
+    mode: retroNegative ? 'retro_negative' : 'standard',
+    publicPhone: location.public_phone,
   })
 
   const base = {
@@ -485,6 +535,17 @@ async function draftAndRoute(
     return
   }
 
+  // Old retro negatives under blanket consent: queue the open-door reply,
+  // paced like every other retro item (publishRetroBatch enforces the cap and
+  // never mixes negatives with positives in one run). No escalation: retro
+  // reviews never page anyone.
+  if (retroNegative) {
+    const err = await writeRow({ state: 'retro_queued' })
+    if (err) summary.errors.push(`retro-negative queue write for ${review.name}: ${err}`)
+    else summary.retro_queued++
+    return
+  }
+
   // ≤3★ (and star-only unknowns): ALWAYS held — the permanent human gate.
   // Live 1-2★ escalate immediately; escalated=true only when the email SENT
   // (the digest tags escalated rows "you were alerted" — keep that truthful).
@@ -538,7 +599,10 @@ async function postExistingDraft(ctx: RunCtx, existing: ReplyRow) {
 
 /** Paced retro publishing — retro_weekly_cap per trailing 7 days per location.
  *  Only rows still in 'retro_queued' publish; handleKnownReview has already
- *  re-locked any queued row whose review acquired an owner reply this run. */
+ *  re-locked any queued row whose review acquired an owner reply this run.
+ *  Positives publish only under retro_enabled, negatives (<=3★) only under
+ *  retro_negative_enabled, and one run never mixes the two kinds — a
+ *  complaint reply sandwiched between same-day thank-yous is a tell. */
 async function publishRetroBatch(ctx: RunCtx): Promise<number> {
   const { supabase, location, summary } = ctx
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -555,15 +619,32 @@ async function publishRetroBatch(ctx: RunCtx): Promise<number> {
 
   const { data: queued } = await supabase
     .from('gbp_review_replies')
-    .select('id, review_name, reply_text')
+    .select('id, review_name, reply_text, star_rating, digested_at')
     .eq('location_id', location.id)
     .eq('state', 'retro_queued')
     .order('review_create_time', { ascending: true })
-    .limit(budget)
+    .limit(budget * 2) // headroom: some rows may be filtered by kind below
 
   let published = 0
-  for (const row of (queued ?? []) as { id: string; review_name: string; reply_text: string }[]) {
+  let runKind: 'positive' | 'negative' | null = null
+  for (const row of (queued ?? []) as {
+    id: string
+    review_name: string
+    reply_text: string
+    star_rating: number | null
+    digested_at: string | null
+  }[]) {
     if (!row.reply_text) continue
+    if (published >= budget) break
+    const kind: 'positive' | 'negative' =
+      row.star_rating != null && row.star_rating <= 3 ? 'negative' : 'positive'
+    if (kind === 'positive' && !location.retro_enabled) continue
+    if (kind === 'negative' && !location.retro_negative_enabled) continue
+    // A negative never publishes before it has appeared in at least one
+    // digest (digested_at set) — Joseph gets a full cycle to redline it.
+    if (kind === 'negative' && !row.digested_at) continue
+    if (runKind === null) runKind = kind
+    else if (kind !== runKind) continue // other kind waits for its own run
     try {
       await updateReply(row.review_name, row.reply_text, ctx.accessToken)
       const { error } = await supabase

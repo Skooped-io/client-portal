@@ -8,9 +8,33 @@
 const VALEDICTIONS =
   /^(best|best regards|regards|warm regards|kind regards|sincerely|cheers|thanks|thank you|many thanks|respectfully|warmly|blessings|god bless)[,.!]?$/i
 
-export function lintReply(text: string): string[] {
+/** Claims a retro-negative reply must never make: past outreach that is not
+ *  on record, or compensation the business has not committed to (policy
+ *  approved 2026-08-10). Enforced in code, not just the prompt. */
+const RETRO_NEG_PAST_OUTREACH =
+  /\bwe('ve| have)? (already )?(tried|attempted|reached out|called|contacted|emailed|texted|messaged|made (this|it) right)\b/i
+const RETRO_NEG_COMPENSATION =
+  /\b(refund|discount|compensat\w*|reimburse\w*|free of charge|at no (cost|charge)|redo (the|your)|money back|credit (you|your))\b/i
+
+export function lintReply(text: string, opts?: { retroNegative?: boolean }): string[] {
   const violations: string[] = []
   const trimmed = text.trim()
+
+  if (opts?.retroNegative) {
+    if (RETRO_NEG_PAST_OUTREACH.test(trimmed)) {
+      violations.push('claims a past outreach or fix attempt that is not on record — present tense only')
+    }
+    if (RETRO_NEG_COMPENSATION.test(trimmed)) {
+      violations.push('offers compensation or work the business has not committed to — a conversation is the only offer allowed')
+    }
+    if (/!/.test(trimmed)) {
+      violations.push('contains an exclamation mark — negative replies stay calm')
+    }
+    const negWords = trimmed.split(/\s+/).filter(Boolean).length
+    if (negWords > 60) {
+      violations.push(`too long for a negative reply (${negWords} words — aim for 40 to 55)`)
+    }
+  }
 
   if (/[—–]/.test(trimmed)) {
     violations.push('contains an em dash or en dash — use commas, periods, or two sentences')
