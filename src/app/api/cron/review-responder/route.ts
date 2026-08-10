@@ -21,7 +21,10 @@ export const maxDuration = 300
  *     1-2★ draft + hold + IMMEDIATE urgent email.
  *   - Retro posting is paced (retro_weekly_cap per trailing 7 days per
  *     location) and only runs where retro_enabled.
- *   - GBP_DRY_RUN=1: full pipeline, drafts stored, NOTHING posted to Google.
+ *   - GBP_DRY_RUN=1: full pipeline, drafts stored, NOTHING posted to Google —
+ *     except locations with live_replies = true, which run the live posting
+ *     path even under the global dry-run (per-location early-live switch,
+ *     Joseph 2026-08-10; first use: Skooped's own profile).
  *
  * State machine per review row (see the migration for the state list):
  *   pending      → drafted on a later run once budget allows (stored
@@ -59,6 +62,7 @@ interface LocationRow {
   retro_enabled: boolean
   retro_weekly_cap: number
   first_synced_at: string | null
+  live_replies: boolean
 }
 
 interface ReplyRow {
@@ -81,6 +85,7 @@ interface LocSummary {
   escalated: number
   retro_posted: number
   failed: number
+  live: boolean
   errors: string[]
 }
 
@@ -120,6 +125,9 @@ export async function GET(request: NextRequest) {
   const summaries: LocSummary[] = []
 
   for (const location of (locations ?? []) as LocationRow[]) {
+    // Per-location effective dry-run: the global env gates everything EXCEPT
+    // locations Joseph has explicitly flipped live via live_replies.
+    const locDryRun = dryRun && !location.live_replies
     const summary: LocSummary = {
       client_key: location.client_key,
       new_locked: 0,
@@ -131,6 +139,7 @@ export async function GET(request: NextRequest) {
       escalated: 0,
       retro_posted: 0,
       failed: 0,
+      live: !locDryRun,
       errors: [],
     }
     summaries.push(summary)
@@ -184,7 +193,7 @@ export async function GET(request: NextRequest) {
       const ctx: RunCtx = {
         supabase,
         accessToken,
-        dryRun,
+        dryRun: locDryRun,
         location,
         recentReplies,
         summary,
@@ -200,7 +209,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      if (location.retro_enabled && !dryRun) {
+      if (location.retro_enabled && !locDryRun) {
         summary.retro_posted = await publishRetroBatch(ctx)
       }
 
