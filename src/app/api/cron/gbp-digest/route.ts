@@ -14,8 +14,9 @@ export const maxDuration = 60
  * the automation did since the last digest — replies posted (autonomous
  * 4-5★), drafts held for him (≤3★, star-only, lint failures), dry-run
  * results, and GBP posts published. Rows are marked digested_at so each item
- * is reported exactly once. Silent when there is nothing new (same
- * worth-emailing convention as monthly-reports).
+ * is reported exactly once. ALWAYS sends (Joseph's 2026-08-11 rule): an empty
+ * day gets a one-line "all quiet" heartbeat, so a missing email always means
+ * something is broken, never that nothing happened.
  */
 
 function verifyCron(request: NextRequest): boolean {
@@ -127,11 +128,24 @@ export async function GET(request: NextRequest) {
   const overdueRows = (overdue ?? []) as unknown as DigestPostRow[]
 
   if (replyRows.length === 0 && postRows.length === 0 && overdueRows.length === 0) {
-    ops.info('system', 'cron.gbp_digest.completed', 'skipped', {
-      metadata: { replies: 0, posts: 0 },
+    // Empty day: send the heartbeat anyway (Joseph, 2026-08-11) — the email's
+    // absence must always be a breakage signal, never ambiguity.
+    const quietHtml = `
+  <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
+    <h2 style="color:#361C24">GBP daily digest</h2>
+    <p style="color:#333">All quiet. No new reviews, nothing held, no posts published in the last 24 hours. The automation ran normally across all managed profiles.</p>
+  </div>`
+    const quietSent = await sendEmail('GBP digest — all quiet, system healthy', quietHtml)
+    if (!quietSent) {
+      ops.warn('system', 'cron.gbp_digest.email_failed', 'failed', {
+        metadata: { replies: 0, posts: 0 },
+      })
+    }
+    ops.info('system', 'cron.gbp_digest.completed', quietSent ? 'completed' : 'failed', {
+      metadata: { replies: 0, posts: 0, email_sent: quietSent },
     })
     await flush()
-    return NextResponse.json({ replies: 0, posts: 0, overdue: 0, email_sent: false })
+    return NextResponse.json({ replies: 0, posts: 0, overdue: 0, email_sent: quietSent })
   }
 
   const posted = replyRows.filter((r) => r.state === 'posted' || r.state === 'drafted')
