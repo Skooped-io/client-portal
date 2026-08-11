@@ -240,6 +240,47 @@ export async function GET(request: NextRequest) {
     else if (r.state === 'held') t.heldToday++
   }
 
+  // One plain sentence per page with a backlog: what went out, what is left,
+  // the rate, and when it ends (Joseph, 2026-08-11: "brief, not crazy detailed").
+  const scheduleSentences = locations
+    .map((loc) => {
+      const t = tallies.get(loc.id)!
+      const publishable =
+        (loc.retro_enabled ? t.queuedPositive : 0) +
+        (loc.retro_negative_enabled ? t.queuedNegative : 0)
+      const paused =
+        (loc.retro_enabled ? 0 : t.queuedPositive) +
+        (loc.retro_negative_enabled ? 0 : t.queuedNegative)
+      if (publishable === 0 && paused === 0 && t.postedToday === 0) return null
+
+      const cap = Math.max(1, loc.retro_weekly_cap)
+      const bits: string[] = [
+        `<strong>${escapeHtml(loc.display_name)}:</strong> ${t.postedToday} posted today`,
+      ]
+      if (publishable > 0) {
+        const weeks = Math.ceil(publishable / cap)
+        const done = new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000)
+        const when = new Intl.DateTimeFormat('en-US', {
+          month: 'long',
+          day: 'numeric',
+          timeZone: 'America/Chicago',
+        }).format(done)
+        bits.push(
+          `${publishable} still queued, ${cap} more go out per week, all answered by about ${when}`
+        )
+      }
+      if (paused > 0) bits.push(`${paused} paused until you say go`)
+      if (publishable === 0 && paused === 0) bits.push('backlog clear')
+      return `<li style="margin-bottom:4px">${bits.join(', ')}.</li>`
+    })
+    .filter(Boolean)
+
+  const scheduleHtml =
+    scheduleSentences.length > 0
+      ? `<p style="color:#361C24;font-size:13px;margin-bottom:4px"><strong>Old-review catch-up schedule</strong></p>
+    <ul style="font-size:13px;color:#333;margin-top:0;padding-left:18px">${scheduleSentences.join('')}</ul>`
+      : ''
+
   const summaryHtml = `
     <h3 style="color:#361C24">Every page, where it stands</h3>
     <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -271,7 +312,8 @@ export async function GET(request: NextRequest) {
         })
         .join('')}
     </table>
-    <p style="color:#666;font-size:12px">"Replies posted" counts this digest window. Backlog = drafted replies to old reviews, published at the weekly cap so a profile never floods. Publishing OFF means those drafts wait on your go.</p>`
+    <p style="color:#666;font-size:12px">"Replies posted" counts this digest window. Backlog = drafted replies to old reviews, published at the weekly cap so a profile never floods. Publishing OFF means those drafts wait on your go.</p>
+    ${scheduleHtml}`
 
   if (replyRows.length === 0 && postRows.length === 0 && overdueRows.length === 0) {
     // Empty day: send the heartbeat anyway (Joseph, 2026-08-11) — the email's
