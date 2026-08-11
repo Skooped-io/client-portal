@@ -28,6 +28,7 @@ function verifyCron(request: NextRequest): boolean {
 
 interface DigestReplyRow {
   id: string
+  location_id: string
   state: string
   escalated: boolean
   reviewer_name: string | null
@@ -36,6 +37,53 @@ interface DigestReplyRow {
   reply_text: string | null
   error: string | null
   gbp_managed_locations: { display_name: string } | null
+}
+
+interface LocationRow {
+  id: string
+  client_key: string
+  display_name: string
+  live_replies: boolean
+  retro_enabled: boolean
+  retro_negative_enabled: boolean
+  retro_weekly_cap: number
+}
+
+/** Standing per-location counts, independent of digested_at — the "where does
+ *  each page stand right now" view Joseph asked for (2026-08-11). */
+interface LocationTally {
+  postedToday: number
+  heldToday: number
+  heldTotal: number
+  queuedPositive: number
+  queuedNegative: number
+  postedThisWeek: number
+}
+
+/** How long the retro backlog takes to clear at the location's weekly cap.
+ *  Honest about the paused case: a queue with publishing switched off has no
+ *  ETA, and saying "6 weeks" would imply work that is not happening. */
+function retroEtaLabel(loc: LocationRow, t: LocationTally): string {
+  const publishablePositive = loc.retro_enabled ? t.queuedPositive : 0
+  const publishableNegative = loc.retro_negative_enabled ? t.queuedNegative : 0
+  const paused =
+    (loc.retro_enabled ? 0 : t.queuedPositive) + (loc.retro_negative_enabled ? 0 : t.queuedNegative)
+  const publishable = publishablePositive + publishableNegative
+
+  if (publishable === 0 && paused === 0) return 'clear'
+  if (publishable === 0) {
+    return `${paused} waiting, publishing OFF (needs your go)`
+  }
+  const cap = Math.max(1, loc.retro_weekly_cap)
+  const weeks = Math.ceil(publishable / cap)
+  const done = new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000)
+  const when = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'America/Chicago',
+  }).format(done)
+  const base = `~${weeks} week${weeks === 1 ? '' : 's'} (about ${when}) at ${cap}/week`
+  return paused > 0 ? `${base}; ${paused} more paused` : base
 }
 
 interface DigestPostRow {
@@ -88,7 +136,7 @@ export async function GET(request: NextRequest) {
   const { data: replies, error: repliesError } = await supabase
     .from('gbp_review_replies')
     .select(
-      'id, state, escalated, reviewer_name, star_rating, review_comment, reply_text, error, gbp_managed_locations(display_name)'
+      'id, location_id, state, escalated, reviewer_name, star_rating, review_comment, reply_text, error, gbp_managed_locations(display_name)'
     )
     .is('digested_at', null)
     .in('state', ['posted', 'held', 'drafted', 'retro_queued', 'failed'])
@@ -127,15 +175,112 @@ export async function GET(request: NextRequest) {
   const postRows = (posts ?? []) as unknown as DigestPostRow[]
   const overdueRows = (overdue ?? []) as unknown as DigestPostRow[]
 
+  // ── Per-page standing summary (Joseph, 2026-08-11) ────────────────────────
+  // Every managed page appears every day, quiet or not, with what it did in
+  // this digest window and how big its backlog still is. Sent on empty days
+  // too, so the heartbeat carries real state instead of just "all quiet".
+  const { data: locationsData } = await supabase
+    .from('gbp_managed_locations')
+    .select(
+      'id, client_key, display_name, live_replies, retro_enabled, retro_negative_enabled, retro_weekly_cap'
+    )
+    .eq('active', true)
+    .order('display_name', { ascending: true })
+  const locations = (locationsData ?? []) as LocationRow[]
+
+  const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const { data: backlogData } = await supabase
+    .from('gbp_review_replies')
+    .select('location_id, state, star_rating, classification, posted_at')
+    .in('state', ['retro_queued', 'held', 'posted'])
+  const backlogRows = (backlogData ?? []) as {
+    location_id: string
+    state: string
+    star_rating: number | null
+    classification: string
+    posted_at: string | null
+  }[]
+
+  const tallies = new Map<string, LocationTally>()
+  for (const loc of locations) {
+    tallies.set(loc.id, {
+      postedToday: 0,
+      heldToday: 0,
+      heldTotal: 0,
+      queuedPositive: 0,
+      queuedNegative: 0,
+      postedThisWeek: 0,
+    })
+  }
+  for (const r of backlogRows) {
+    const t = tallies.get(r.location_id)
+    if (!t) continue
+    if (r.state === 'held') t.heldTotal++
+    else if (r.state === 'retro_queued') {
+      if (r.star_rating != null && r.star_rating <= 3) t.queuedNegative++
+      else t.queuedPositive++
+    } else if (
+      r.state === 'posted' &&
+      r.classification === 'retro' &&
+      r.posted_at &&
+      r.posted_at >= weekAgoIso
+    ) {
+      t.postedThisWeek++
+    }
+  }
+  for (const r of replyRows) {
+    const t = tallies.get(r.location_id)
+    if (!t) continue
+    if (r.state === 'posted' || r.state === 'drafted') t.postedToday++
+    else if (r.state === 'held') t.heldToday++
+  }
+
+  const summaryHtml = `
+    <h3 style="color:#361C24">Every page, where it stands</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="text-align:left;color:#666">
+        <th style="padding:6px 8px;border-bottom:2px solid #eee">Page</th>
+        <th style="padding:6px 8px;border-bottom:2px solid #eee">Replies posted</th>
+        <th style="padding:6px 8px;border-bottom:2px solid #eee">Held for you</th>
+        <th style="padding:6px 8px;border-bottom:2px solid #eee">Backlog queued</th>
+        <th style="padding:6px 8px;border-bottom:2px solid #eee">Backlog clears</th>
+      </tr>
+      ${locations
+        .map((loc) => {
+          const t = tallies.get(loc.id)!
+          const mode = loc.live_replies
+            ? '<span style="color:#1a7f37">live</span>'
+            : '<span style="color:#9a6700">draft only</span>'
+          const queued = t.queuedPositive + t.queuedNegative
+          const queuedCell =
+            queued === 0
+              ? '0'
+              : `${queued}${t.queuedNegative > 0 ? ` (${t.queuedNegative} negative)` : ''}`
+          return `<tr>
+            <td style="padding:8px;border-bottom:1px solid #eee"><strong>${escapeHtml(loc.display_name)}</strong><br><span style="font-size:12px">${mode}</span></td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${t.postedToday}${t.postedThisWeek > 0 ? `<br><span style="color:#666;font-size:12px">${t.postedThisWeek} this week</span>` : ''}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${t.heldTotal}${t.heldToday > 0 ? `<br><span style="color:#9a6700;font-size:12px">${t.heldToday} new</span>` : ''}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${queuedCell}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(retroEtaLabel(loc, t))}</td>
+          </tr>`
+        })
+        .join('')}
+    </table>
+    <p style="color:#666;font-size:12px">"Replies posted" counts this digest window. Backlog = drafted replies to old reviews, published at the weekly cap so a profile never floods. Publishing OFF means those drafts wait on your go.</p>`
+
   if (replyRows.length === 0 && postRows.length === 0 && overdueRows.length === 0) {
     // Empty day: send the heartbeat anyway (Joseph, 2026-08-11) — the email's
     // absence must always be a breakage signal, never ambiguity.
     const quietHtml = `
   <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
     <h2 style="color:#361C24">GBP daily digest</h2>
-    <p style="color:#333">All quiet. No new reviews, nothing held, no posts published in the last 24 hours. The automation ran normally across all managed profiles.</p>
+    <p style="color:#333">All quiet. No new reviews, nothing newly held, no posts published in the last 24 hours. The automation ran normally across all ${locations.length} managed profile${locations.length === 1 ? '' : 's'}.</p>
+    ${summaryHtml}
   </div>`
-    const quietSent = await sendEmail('GBP digest — all quiet, system healthy', quietHtml)
+    const quietSent = await sendEmail(
+      `GBP digest — all quiet, ${locations.length} page${locations.length === 1 ? '' : 's'} healthy`,
+      quietHtml
+    )
     if (!quietSent) {
       ops.warn('system', 'cron.gbp_digest.email_failed', 'failed', {
         metadata: { replies: 0, posts: 0 },
@@ -222,6 +367,7 @@ export async function GET(request: NextRequest) {
   <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
     <h2 style="color:#361C24">GBP daily digest</h2>
     <p style="color:#666;font-size:13px">Everything the review/post automation did since the last digest. Corrections: tell a session, or edit directly in Business Profile Manager. Pattern-level fixes go in the persona files.</p>
+    ${summaryHtml}
     ${sections.join('')}
   </div>`
 
