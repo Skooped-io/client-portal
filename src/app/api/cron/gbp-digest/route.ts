@@ -30,6 +30,7 @@ interface DigestReplyRow {
   id: string
   location_id: string
   state: string
+  classification: string
   escalated: boolean
   reviewer_name: string | null
   star_rating: number | null
@@ -114,9 +115,13 @@ function replyRowHtml(r: DigestReplyRow): string {
           ? `<span style="color:#B3261E">FAILED (${escapeHtml(r.error ?? '')})</span>`
           : r.escalated
             ? '<span style="color:#B3261E">HELD — urgent, you were alerted</span>'
-            : r.star_rating != null && r.star_rating <= 2
-              ? '<span style="color:#B3261E">HELD — URGENT, the alert email FAILED; this is your first notice</span>'
-              : '<span style="color:#9a6700">HELD for you</span>'
+            : r.classification === 'retro'
+              ? // Old review: no alert is ever sent for these (by design), so
+                // never imply an alert failed.
+                '<span style="color:#9a6700">HELD — old review, no alert sent by design</span>'
+              : r.star_rating != null && r.star_rating <= 2
+                ? '<span style="color:#B3261E">HELD — URGENT, the alert email FAILED; this is your first notice</span>'
+                : '<span style="color:#9a6700">HELD for you</span>'
   return `
   <tr><td style="padding:10px 12px;border-bottom:1px solid #eee">
     <strong>${escapeHtml(loc)}</strong> · ${escapeHtml(r.reviewer_name ?? 'Anonymous')} · ${stars} · ${tag}
@@ -136,7 +141,7 @@ export async function GET(request: NextRequest) {
   const { data: replies, error: repliesError } = await supabase
     .from('gbp_review_replies')
     .select(
-      'id, location_id, state, escalated, reviewer_name, star_rating, review_comment, reply_text, error, gbp_managed_locations(display_name)'
+      'id, location_id, state, classification, escalated, reviewer_name, star_rating, review_comment, reply_text, error, gbp_managed_locations(display_name)'
     )
     .is('digested_at', null)
     .in('state', ['posted', 'held', 'drafted', 'retro_queued', 'failed'])

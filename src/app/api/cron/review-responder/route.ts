@@ -321,6 +321,8 @@ async function handleKnownReview(ctx: RunCtx, review: GbpReview, existing: Reply
   // redraft in open-door mode and queue (draftAndRoute re-detects the
   // retro-negative path and replaces the held draft in place). Live held rows
   // are untouched — the human gate on fresh negatives is permanent.
+  // (Flag-gated on purpose: an unconditional redraft would rewrite every held
+  // retro row on every run, resetting digested_at and re-reporting it daily.)
   if (
     existing.state === 'held' &&
     existing.classification === 'retro' &&
@@ -416,14 +418,14 @@ async function draftAndRoute(
   const { supabase, location, summary } = ctx
   const rating = starValue(review)
 
-  // Open-door path (policy 2026-08-10): old retro negative + client consent.
-  // Decided BEFORE drafting because it changes the drafting rules entirely.
-  const retroNegative =
-    classification === 'retro' &&
-    rating > 0 &&
-    rating <= 3 &&
-    location.retro_negative_enabled &&
-    isRetroNegativeAge(review.createTime)
+  // Open-door path (policy 2026-08-10). DRAFTING mode is decided by the review
+  // itself, not by the consent flag: for an old negative nobody can reconstruct
+  // the facts, so a draft that admits fault ("that is on me") is unsafe even
+  // sitting in the held queue, because a held draft is exactly what a human
+  // pastes into Business Profile Manager. The flag gates PUBLISHING only.
+  const retroNegativeDraft =
+    classification === 'retro' && rating > 0 && rating <= 3 && isRetroNegativeAge(review.createTime)
+  const retroNegative = retroNegativeDraft && location.retro_negative_enabled
 
   ctx.budget.used++
   const draft = await draftReply({
@@ -432,7 +434,7 @@ async function draftAndRoute(
     starRating: rating || 5,
     comment: review.comment ?? null,
     recentReplies: ctx.recentReplies,
-    mode: retroNegative ? 'retro_negative' : 'standard',
+    mode: retroNegativeDraft ? 'retro_negative' : 'standard',
     publicPhone: location.public_phone,
   })
 
