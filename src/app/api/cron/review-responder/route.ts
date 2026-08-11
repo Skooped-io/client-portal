@@ -62,6 +62,10 @@ const MAX_DRAFTS_PER_RUN = 12
 // client's account of the facts. Older, the open-door policy applies.
 const RETRO_NEGATIVE_MIN_AGE_DAYS = 60
 
+// Voice-correction revisions are paced too: rewriting a whole profile's replies
+// in one run re-notifies every one of those reviewers on the same day.
+const MAX_REVISIONS_PER_RUN = 4
+
 /** True only when the review's create time is known AND older than the
  *  threshold — an unknown age is treated as fresh (conservative: held). */
 function isRetroNegativeAge(createTime: string | null | undefined): boolean {
@@ -120,7 +124,7 @@ interface RunCtx {
   location: LocationRow
   recentReplies: string[]
   summary: LocSummary
-  budget: { used: number }
+  budget: { used: number; revisions: number }
 }
 
 export async function GET(request: NextRequest) {
@@ -145,7 +149,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to load locations' }, { status: 500 })
   }
 
-  const budget = { used: 0 }
+  const budget = { used: 0, revisions: 0 }
   const summaries: LocSummary[] = []
 
   for (const location of (locations ?? []) as LocationRow[]) {
@@ -339,11 +343,18 @@ async function handleKnownReview(ctx: RunCtx, review: GbpReview, existing: Reply
     }
   }
 
-  // Voice correction on a reply we already published (revise_requested set by a
-  // session after client feedback). Safe because 'posted' means WE wrote it:
-  // hand-written owner replies are 'locked' and never reach this branch.
-  if (existing.state === 'posted' && existing.revise_requested && !ctx.dryRun) {
+  // Voice correction on an already-published reply. 'posted' = we wrote it.
+  // 'locked' = written outside the system, normally untouchable; it is included
+  // ONLY when a human explicitly set revise_requested on that row, which is how
+  // Andy's 2026-08-11 "make the old ones say we, not I" was carried out. Both
+  // are paced so one profile does not re-notify every reviewer in a day.
+  if (
+    (existing.state === 'posted' || existing.state === 'locked') &&
+    existing.revise_requested &&
+    !ctx.dryRun
+  ) {
     if (ctx.budget.used >= MAX_DRAFTS_PER_RUN) return // next run
+    if (ctx.budget.revisions >= MAX_REVISIONS_PER_RUN) return // next run
     await revisePostedReply(ctx, review, existing)
     return
   }
@@ -364,6 +375,7 @@ async function revisePostedReply(ctx: RunCtx, review: GbpReview, existing: Reply
     isRetroNegativeAge(review.createTime)
 
   ctx.budget.used++
+  ctx.budget.revisions++
   const draft = await draftReply({
     brandVoice: location.brand_voice,
     reviewerName: review.reviewer?.displayName ?? null,
@@ -391,6 +403,9 @@ async function revisePostedReply(ctx: RunCtx, review: GbpReview, existing: Reply
   const { error } = await supabase
     .from('gbp_review_replies')
     .update({
+      // A revised 'locked' row becomes ours: the live text is now the system's,
+      // so future runs may manage it like any other posted reply.
+      state: 'posted',
       reply_text: draft.text,
       revise_requested: false,
       posted_at: new Date().toISOString(),
