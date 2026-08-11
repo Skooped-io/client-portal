@@ -94,6 +94,7 @@ interface ReplyRow {
   state: string
   escalated: boolean
   reply_text: string | null
+  revise_requested: boolean
 }
 
 interface LocSummary {
@@ -107,6 +108,7 @@ interface LocSummary {
   escalated: number
   retro_posted: number
   failed: number
+  revised: number
   live: boolean
   errors: string[]
 }
@@ -161,6 +163,7 @@ export async function GET(request: NextRequest) {
       escalated: 0,
       retro_posted: 0,
       failed: 0,
+      revised: 0,
       live: !locDryRun,
       errors: [],
     }
@@ -193,7 +196,7 @@ export async function GET(request: NextRequest) {
 
       const { data: existingRows, error: rowsError } = await supabase
         .from('gbp_review_replies')
-        .select('id, review_name, classification, state, escalated, reply_text')
+        .select('id, review_name, classification, state, escalated, reply_text, revise_requested')
         .eq('location_id', location.id)
       if (rowsError) throw new Error(`loading known reviews failed: ${rowsError.message}`)
       const known = new Map(((existingRows ?? []) as ReplyRow[]).map((r) => [r.review_name, r]))
@@ -336,7 +339,72 @@ async function handleKnownReview(ctx: RunCtx, review: GbpReview, existing: Reply
     }
   }
 
+  // Voice correction on a reply we already published (revise_requested set by a
+  // session after client feedback). Safe because 'posted' means WE wrote it:
+  // hand-written owner replies are 'locked' and never reach this branch.
+  if (existing.state === 'posted' && existing.revise_requested && !ctx.dryRun) {
+    if (ctx.budget.used >= MAX_DRAFTS_PER_RUN) return // next run
+    await revisePostedReply(ctx, review, existing)
+    return
+  }
+
   // posted / held / retro_queued / failed / locked: nothing to do this run.
+}
+
+/** Redraft an already-published reply in the location's CURRENT brand voice and
+ *  overwrite it on Google. The row stays 'posted' throughout: if the redraft or
+ *  the PUT fails, the existing public reply is simply left alone. */
+async function revisePostedReply(ctx: RunCtx, review: GbpReview, existing: ReplyRow) {
+  const { supabase, location, summary } = ctx
+  const rating = starValue(review)
+  const retroNegativeDraft =
+    existing.classification === 'retro' &&
+    rating > 0 &&
+    rating <= 3 &&
+    isRetroNegativeAge(review.createTime)
+
+  ctx.budget.used++
+  const draft = await draftReply({
+    brandVoice: location.brand_voice,
+    reviewerName: review.reviewer?.displayName ?? null,
+    starRating: rating || 5,
+    comment: review.comment ?? null,
+    recentReplies: ctx.recentReplies,
+    mode: retroNegativeDraft ? 'retro_negative' : 'standard',
+    publicPhone: location.public_phone,
+  })
+  if (!draft.text) {
+    summary.errors.push(
+      `revision draft failed for ${review.name} (old reply left public): ${draft.violations.join('; ')}`
+    )
+    return
+  }
+
+  try {
+    await updateReply(review.name, draft.text, ctx.accessToken)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    summary.errors.push(`revision post failed for ${review.name}: ${msg}`)
+    return
+  }
+
+  const { error } = await supabase
+    .from('gbp_review_replies')
+    .update({
+      reply_text: draft.text,
+      revise_requested: false,
+      posted_at: new Date().toISOString(),
+      digested_at: null, // resurface in the next digest as revised
+      error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existing.id)
+  if (error) {
+    // The new text IS live; a stale row would only make us re-revise once more.
+    summary.errors.push(`revision state write for ${review.name}: ${error.message}`)
+  }
+  ctx.recentReplies.unshift(draft.text)
+  summary.revised++
 }
 
 async function handleNewReview(ctx: RunCtx, review: GbpReview, firstSync: boolean) {
