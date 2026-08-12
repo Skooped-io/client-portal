@@ -1,5 +1,5 @@
 -- ============================================================================
--- Skooped.io — Report ingest: lead counts + Google review activity
+-- Skooped.io report ingest: lead counts + Google review activity
 -- Run: Supabase SQL Editor → paste and execute
 -- Date: 2026-08-12
 --
@@ -18,7 +18,7 @@
 --     report. org_id gives gbp_managed_locations that link; the monthly cron
 --     then aggregates gbp_review_replies per org with no per-client mapping in
 --     code. client_key stays the automation's own identity (it is what the
---     seeds, digest and post loader use) — org_id is additive and nullable so
+--     seeds, digest and post loader use); org_id is additive and nullable so
 --     Skooped's own profile, which has no client org, keeps working.
 --
 -- Idempotent: safe to re-run.
