@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { ops, flush } from '@/lib/logger'
+import { DEVICE_PREFIX, LEAD_PREFIX } from '@/lib/reports/aggregate'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,8 +30,17 @@ export const maxDuration = 60
  *     bounce_rate: 41.2,               // optional, percent
  *     avg_session_duration: 62.5,      // optional, seconds
  *     sources:   [{ source: "google", sessions: 8 }],  // optional, stored as traffic_sources
- *     top_pages: [{ path: "/", pageviews: 20 }]        // optional
+ *     top_pages: [{ path: "/", pageviews: 20 }],       // optional
+ *     leads:     { form: 8, call: 10, ad: 0 }          // optional, see below
  *   }
+ *
+ * `leads` is the month's lead count for that org, attached to ONE row (the
+ * period's last day) the same way sources/top_pages are. Form leads live in
+ * each client site's own Supabase, not this one, so they cannot be pulled
+ * server-side: the monthly routine counts them per client (leads or
+ * contact_submissions) plus the Local Services / ads lead ledgers and pushes
+ * the totals here. Stored inside traffic_sources behind a reserved prefix, the
+ * same no-schema-change trick devices already use.
  *
  * Upserts on (org_id, date) — re-posting a day overwrites it (idempotent).
  * Unknown slugs are reported back, not treated as a hard failure, so one bad
@@ -53,6 +63,15 @@ const ingestRowSchema = z.object({
   devices: z
     .array(z.object({ device: z.string().min(1), sessions: z.number().int().nonnegative() }))
     .default([]),
+  // Month's lead counts, stored inside traffic_sources with the __lead__:
+  // prefix; the monthly-reports cron splits them back out into metrics.leads.
+  leads: z
+    .object({
+      form: z.number().int().nonnegative().optional(),
+      call: z.number().int().nonnegative().optional(),
+      ad: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 })
 
 const ingestBodySchema = z.union([ingestRowSchema, z.array(ingestRowSchema).min(1).max(500)])
@@ -123,7 +142,10 @@ export async function POST(request: NextRequest) {
         : {}),
       traffic_sources: [
         ...r.sources,
-        ...r.devices.map((d) => ({ source: `__device__:${d.device}`, sessions: d.sessions })),
+        ...r.devices.map((d) => ({ source: `${DEVICE_PREFIX}${d.device}`, sessions: d.sessions })),
+        ...Object.entries(r.leads ?? {})
+          .filter(([, count]) => typeof count === 'number' && count > 0)
+          .map(([kind, count]) => ({ source: `${LEAD_PREFIX}${kind}`, sessions: count })),
       ],
       top_pages: r.top_pages,
       // Marks the writer; distinguishes pushed rows from GA4-synced ones.

@@ -15,8 +15,11 @@ import {
   Globe,
   BookOpen,
   Users,
+  Star,
+  MessageSquare,
 } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isReservedSource } from '@/lib/reports/aggregate'
 import { cn } from '@/lib/utils'
 
 // Public tokenized report page. Always fetched fresh so revoked tokens 404 immediately.
@@ -113,8 +116,8 @@ function sourceLabel(raw: string): string {
 function mergeSources(rows: SourceRow[]): Array<{ label: string; sessions: number }> {
   const acc = new Map<string, number>()
   for (const r of rows) {
-    // Reserved device rows must never render as a traffic source.
-    if (r.source.startsWith('__device__:')) continue
+    // Reserved rows (device split, lead counts) must never render as a source.
+    if (isReservedSource(r.source)) continue
     const label = sourceLabel(r.source)
     acc.set(label, (acc.get(label) ?? 0) + r.sessions)
   }
@@ -258,6 +261,29 @@ export default async function PublicReportPage({ params }: PublicReportPageProps
       prevValue: null,
       icon: Users,
       show: (num(m, 'leads') ?? 0) > 0,
+    },
+    {
+      label: 'New Google Reviews',
+      value: num(m, 'new_reviews') ?? 0,
+      prevValue: null,
+      icon: Star,
+      show: (num(m, 'new_reviews') ?? 0) > 0,
+    },
+    {
+      label: 'Your Google Rating',
+      value: num(m, 'reviews_avg_rating') ?? 0,
+      prevValue: null,
+      suffix: ' / 5',
+      decimals: 1,
+      icon: Star,
+      show: (num(m, 'reviews_avg_rating') ?? 0) > 0,
+    },
+    {
+      label: 'Reviews We Answered',
+      value: num(m, 'review_replies') ?? 0,
+      prevValue: null,
+      icon: MessageSquare,
+      show: (num(m, 'review_replies') ?? 0) > 0,
     },
     {
       label: 'Google Search Clicks',

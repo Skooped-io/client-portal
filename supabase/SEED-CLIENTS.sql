@@ -99,9 +99,7 @@ ON CONFLICT (org_id) DO UPDATE SET
   lovable_project_id = EXCLUDED.lovable_project_id;
 
 -- ─── Rios Landscaping (single) ───────────────────────────────────────────────
--- TODO: lovable_project_id unknown as of 2026-07-29 — fill in once identified
--- (UPDATE public.business_profiles SET lovable_project_id = '<uuid>'
---  WHERE org_id = (SELECT id FROM public.organizations WHERE slug = 'rios-landscaping');)
+-- lovable_project_id resolved 2026-08-11 (rios-landscaping-tn).
 WITH org AS (
   INSERT INTO public.organizations (name, slug)
   VALUES ('Rios Landscaping', 'rios-landscaping')
@@ -109,7 +107,57 @@ WITH org AS (
   RETURNING id
 )
 INSERT INTO public.business_profiles (org_id, business_name, plan, reports_enabled, lovable_project_id)
-SELECT id, 'Rios Landscaping', 'single', true, NULL FROM org
+SELECT id, 'Rios Landscaping', 'single', true, 'fe318dfa-3ff8-4f91-82e0-1fcc3440f17c' FROM org
+ON CONFLICT (org_id) DO UPDATE SET
+  plan = EXCLUDED.plan,
+  reports_enabled = EXCLUDED.reports_enabled,
+  lovable_project_id = EXCLUDED.lovable_project_id;
+
+-- ─── Added 2026-08-11: the three paying clients that had no org ──────────────
+-- Found by the report audit: all three are active monthly subscribers on the LLC
+-- Stripe account, so the 3rd-of-month cron owed them a report page and could not
+-- build one. Rows below were already applied live via PostgREST; this file stays
+-- the record. Clients with NO active monthly sub (Rochelle, Space of Grace,
+-- Legacy Weaver) are deliberately still absent.
+
+-- ─── Tonya Mills Counseling (single — first report month is August 2026) ─────
+WITH org AS (
+  INSERT INTO public.organizations (name, slug)
+  VALUES ('Tonya Mills Counseling', 'tonya-mills')
+  ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id
+)
+INSERT INTO public.business_profiles (org_id, business_name, plan, reports_enabled, lovable_project_id)
+SELECT id, 'Tonya Mills Counseling', 'single', true, 'bc7b686a-81f2-4951-81ca-f3223a0e9704' FROM org
+ON CONFLICT (org_id) DO UPDATE SET
+  plan = EXCLUDED.plan,
+  reports_enabled = EXCLUDED.reports_enabled,
+  lovable_project_id = EXCLUDED.lovable_project_id;
+
+-- ─── Southside Grounds (single — report generates, sending stays on the ──────
+--     arrears hold that lives in hq ops/TASKS.md, not here) ──────────────────
+WITH org AS (
+  INSERT INTO public.organizations (name, slug)
+  VALUES ('Southside Grounds', 'southside-grounds')
+  ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id
+)
+INSERT INTO public.business_profiles (org_id, business_name, plan, reports_enabled, lovable_project_id)
+SELECT id, 'Southside Grounds', 'single', true, 'bc1f50b6-b9e7-4ed9-ac0d-8eaafacd50e8' FROM org
+ON CONFLICT (org_id) DO UPDATE SET
+  plan = EXCLUDED.plan,
+  reports_enabled = EXCLUDED.reports_enabled,
+  lovable_project_id = EXCLUDED.lovable_project_id;
+
+-- ─── Findi Longevity (single) ────────────────────────────────────────────────
+WITH org AS (
+  INSERT INTO public.organizations (name, slug)
+  VALUES ('Findi Longevity', 'findi-longevity')
+  ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id
+)
+INSERT INTO public.business_profiles (org_id, business_name, plan, reports_enabled, lovable_project_id)
+SELECT id, 'Findi Longevity', 'single', true, '512fba23-ec0c-418f-acca-df922c46c1c5' FROM org
 ON CONFLICT (org_id) DO UPDATE SET
   plan = EXCLUDED.plan,
   reports_enabled = EXCLUDED.reports_enabled,
