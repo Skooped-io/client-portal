@@ -14,6 +14,14 @@ describe('csvEnv', () => {
     expect(csvEnv(undefined, ['x'])).toEqual(['x'])
     expect(csvEnv('  ,  ', ['x'])).toEqual(['x'])
   })
+  it('lowercases the FALLBACK too, or the mixed-case default plink ids never match', () => {
+    expect(csvEnv(undefined, ['ABC.com'])).toEqual(['abc.com'])
+    expect(csvEnv('  ,  ', ['ABC.com'])).toEqual(['abc.com'])
+  })
+  it('a mixed-case id survives the round trip callers actually perform', () => {
+    const id = 'plink_1U2uuuAJ2gGgGm7b9QvuM10Y'
+    expect(csvEnv(undefined, [id]).includes(id.toLowerCase())).toBe(true)
+  })
 })
 
 describe('parseCustomFields', () => {

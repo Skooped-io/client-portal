@@ -46,10 +46,18 @@ const stripeClient = new Stripe(
   { apiVersion: '2026-02-25.clover' }
 )
 
+/**
+ * The fallback is lowercased too, not just the parsed env value. Callers compare against a
+ * `.toLowerCase()`d input, so returning a mixed-case default silently matched nothing: the
+ * hardcoded plink ids are mixed case, so with no env var set every real sale was dropped as
+ * "another payment link". Caught by a signed live test on 2026-08-12, not by a unit test,
+ * because the tests only ever exercised the env-provided branch.
+ */
 export function csvEnv(value: string | undefined, fallback: string[] = []): string[] {
-  if (!value) return fallback
-  const parts = value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-  return parts.length ? parts : fallback
+  const norm = (list: string[]) => list.map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (!value) return norm(fallback)
+  const parts = norm(value.split(','))
+  return parts.length ? parts : norm(fallback)
 }
 
 /** Payment Links expose the buyer's answers as an array; flatten to a plain lookup. */
