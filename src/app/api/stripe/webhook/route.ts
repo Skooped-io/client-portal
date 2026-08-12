@@ -1,5 +1,12 @@
 /*
- * Supabase migration — run this SQL to create the subscriptions table:
+ * DORMANT (audited 2026-08-12). This handler has never fired in production and cannot fire for
+ * any Stripe Payment Link sale: handleCheckoutSessionCompleted early-returns on
+ * session.metadata.userId, which Payment Links never set, and the deploy trigger below points at
+ * a legacy Render box. It only makes sense for the authenticated portal signup flow, which has
+ * never been used. Payment Link fulfillment lives in ../local-scoop/route.ts instead. Do not
+ * extend this file for new plans without first re-checking whether it is reachable at all.
+ *
+ * Supabase migration, run this SQL to create the subscriptions table:
  *
  * create table if not exists public.subscriptions (
  *   id uuid primary key default gen_random_uuid(),
