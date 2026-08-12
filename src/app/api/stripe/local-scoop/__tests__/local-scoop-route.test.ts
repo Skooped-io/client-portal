@@ -3,14 +3,8 @@ import type Stripe from 'stripe'
 
 process.env.STRIPE_WEBHOOK_SECRET_LOCAL_SCOOP = 'whsec_test'
 
-import {
-  csvEnv,
-  parseCustomFields,
-  firstName,
-  isHostedByUs,
-  buildWelcomeEmail,
-  buildInternalAlert,
-} from '../route'
+import { csvEnv, parseCustomFields, isHostedByUs, buildInternalAlert } from '../route'
+import { firstName, buildWelcomeEmail, looksLikeEmail } from '@/lib/local-scoop/welcome-email'
 
 describe('csvEnv', () => {
   it('splits, trims, and lowercases', () => {
@@ -79,6 +73,16 @@ describe('buildWelcomeEmail', () => {
     expect(mail.html).toContain('615-315-1541')
     expect(mail.html).not.toMatch(/[—–]/)
     expect(mail.subject).not.toMatch(/[—–]/)
+  })
+})
+
+describe('looksLikeEmail', () => {
+  it('accepts a normal address and rejects obvious junk', () => {
+    expect(looksLikeEmail('mike@example.com')).toBe(true)
+    expect(looksLikeEmail(' mike@example.com ')).toBe(true)
+    expect(looksLikeEmail('mike@example')).toBe(false)
+    expect(looksLikeEmail('not an email')).toBe(false)
+    expect(looksLikeEmail(undefined)).toBe(false)
   })
 })
 

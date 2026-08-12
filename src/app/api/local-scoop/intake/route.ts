@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { escapeHtml } from '@/lib/gbp/notify'
+import { buildWelcomeEmail, firstName, looksLikeEmail } from '@/lib/local-scoop/welcome-email'
 import { portal } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -28,6 +29,7 @@ const MAX_FIELD = 2000
 
 export const FIELDS = [
   { key: 'contact_name', label: 'Name' },
+  { key: 'email', label: 'Email' },
   { key: 'phone', label: 'Best phone (call only)' },
   { key: 'services', label: 'Services to lead with' },
   { key: 'towns', label: 'Towns served' },
@@ -87,7 +89,7 @@ export function buildIntakeEmail(data: Record<string, string>) {
   return { subject: `Local Scoop intake: ${business}`, html }
 }
 
-async function sendToOwner(subject: string, html: string): Promise<boolean> {
+async function send(to: string[], subject: string, html: string, replyTo?: string): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
     console.error('[local-scoop-intake] RESEND_API_KEY not set, intake would be lost:', subject)
@@ -97,7 +99,7 @@ async function sendToOwner(subject: string, html: string): Promise<boolean> {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM, to: [OWNER], subject, html }),
+      body: JSON.stringify({ from: FROM, to, subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
     })
     if (!res.ok) console.error(`[local-scoop-intake] Resend responded ${res.status}`, await res.text())
     return res.ok
@@ -129,13 +131,25 @@ export async function POST(request: NextRequest) {
   }
 
   const { subject, html } = buildIntakeEmail(data)
-  const sent = await sendToOwner(subject, html)
+  const sent = await send([OWNER], subject, html)
   if (!sent) {
     portal.error('local-scoop.intake', 'send failed')
     /* The client already typed everything once. Never show them a failure they cannot act on:
        the answers are in the logs, and the manager invite is the step that actually matters. */
   } else {
     portal.event('local-scoop.intake', 'completed')
+  }
+
+  /* Their copy of the manager-access steps. The client asked for this by submitting the form,
+     so it works today with no signing secret. The Stripe webhook covers the buyers who never
+     fill this in; a client who hits both paths gets the same body twice, not two versions. */
+  if (looksLikeEmail(data.email)) {
+    const welcome = buildWelcomeEmail({
+      firstName: firstName(data.contact_name),
+      businessName: data.business_name || data.contact_name || 'your business',
+    })
+    const copySent = await send([data.email.trim()], welcome.subject, welcome.html, OWNER)
+    console.log('[local-scoop-intake] client copy', copySent ? 'sent' : 'FAILED')
   }
 
   portal.api('POST', '/api/local-scoop/intake', 200, Date.now() - startTime)
