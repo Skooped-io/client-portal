@@ -8,16 +8,6 @@
 /** Device rows ride inside analytics_metrics.traffic_sources with this prefix. */
 export const DEVICE_PREFIX = '__device__:'
 
-/**
- * Lead counts ride inside the same jsonb with this prefix, same trick as
- * devices (2026-08-12). Form leads live in each CLIENT SITE's own Supabase
- * (hq/LEAD-CAPTURE-SPEC-2026-07.md decision 3), so the portal cannot query
- * them: the monthly routine counts them per client and pushes them with the
- * analytics rows. Replace with the lead_metrics table once
- * supabase/migrations/20260812000000_report_leads_and_reviews.sql is applied.
- */
-export const LEAD_PREFIX = '__lead__:'
-
 /** Lead kinds the routine may push. `form` = website form, `call` = Local
  *  Services / call ledger, `ad` = paid-campaign lead events. */
 export const LEAD_KINDS = ['form', 'call', 'ad'] as const
@@ -33,26 +23,23 @@ export interface SplitTraffic {
   sources: TrafficEntry[]
   /** device → sessions. */
   devices: Map<string, number>
-  /** lead kind → count. */
-  leads: Map<string, number>
 }
 
 /** True for any reserved (non-referrer) entry. */
 export function isReservedSource(source: string): boolean {
-  return source.startsWith(DEVICE_PREFIX) || source.startsWith(LEAD_PREFIX)
+  return source.startsWith(DEVICE_PREFIX)
 }
 
 /**
- * Split one day's traffic_sources jsonb into real sources, device counts and
- * lead counts. Malformed entries are dropped rather than throwing: this runs
- * unattended on the 3rd and a bad row must not sink a client's report.
+ * Split one day's traffic_sources jsonb into real sources and device counts.
+ * Malformed entries are dropped rather than throwing: this runs unattended on
+ * the 3rd and a bad row must not sink a client's report.
  */
 export function splitTrafficEntries(entries: unknown): SplitTraffic {
   const sources: TrafficEntry[] = []
   const devices = new Map<string, number>()
-  const leads = new Map<string, number>()
 
-  if (!Array.isArray(entries)) return { sources, devices, leads }
+  if (!Array.isArray(entries)) return { sources, devices }
 
   for (const raw of entries) {
     if (typeof raw !== 'object' || raw === null) continue
@@ -63,15 +50,12 @@ export function splitTrafficEntries(entries: unknown): SplitTraffic {
     if (entry.source.startsWith(DEVICE_PREFIX)) {
       const device = entry.source.slice(DEVICE_PREFIX.length)
       if (device) devices.set(device, (devices.get(device) ?? 0) + entry.sessions)
-    } else if (entry.source.startsWith(LEAD_PREFIX)) {
-      const kind = entry.source.slice(LEAD_PREFIX.length)
-      if (kind) leads.set(kind, (leads.get(kind) ?? 0) + entry.sessions)
     } else {
       sources.push({ source: entry.source, sessions: entry.sessions })
     }
   }
 
-  return { sources, devices, leads }
+  return { sources, devices }
 }
 
 // ─── Google review activity ──────────────────────────────────────────────────
@@ -172,15 +156,26 @@ export interface LeadAggregate {
   summaryLines: string[]
 }
 
+/** The subset of lead_metrics the report needs. */
+export interface LeadRow {
+  form_leads?: number | null
+  call_leads?: number | null
+  ad_leads?: number | null
+}
+
+function sumColumn(rows: LeadRow[], key: keyof LeadRow): number {
+  return rows.reduce((acc, r) => acc + (typeof r[key] === 'number' ? (r[key] as number) : 0), 0)
+}
+
 /**
- * Roll the pushed lead counts into the single `leads` number the report page
- * renders, plus plain-English lines. Breakdown keys are kept so a client
+ * Roll the period's lead_metrics rows into the single `leads` number the report
+ * page renders, plus plain-English lines. Breakdown keys are kept so a client
  * question ("where did that number come from?") is answerable from the row.
  */
-export function aggregateLeads(leads: Map<string, number>): LeadAggregate {
-  const form = leads.get('form') ?? 0
-  const call = leads.get('call') ?? 0
-  const ad = leads.get('ad') ?? 0
+export function aggregateLeads(rows: LeadRow[]): LeadAggregate {
+  const form = sumColumn(rows, 'form_leads')
+  const call = sumColumn(rows, 'call_leads')
+  const ad = sumColumn(rows, 'ad_leads')
   const total = form + call + ad
 
   if (total === 0) return { metrics: {}, highlights: [], summaryLines: [] }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { ops, flush } from '@/lib/logger'
-import { DEVICE_PREFIX, LEAD_PREFIX } from '@/lib/reports/aggregate'
+import { DEVICE_PREFIX } from '@/lib/reports/aggregate'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,8 +39,8 @@ export const maxDuration = 60
  * each client site's own Supabase, not this one, so they cannot be pulled
  * server-side: the monthly routine counts them per client (leads or
  * contact_submissions) plus the Local Services / ads lead ledgers and pushes
- * the totals here. Stored inside traffic_sources behind a reserved prefix, the
- * same no-schema-change trick devices already use.
+ * the totals here. They land in their own lead_metrics table, upserted on
+ * (org_id, date), which the monthly report cron sums into the Leads tile.
  *
  * Upserts on (org_id, date) — re-posting a day overwrites it (idempotent).
  * Unknown slugs are reported back, not treated as a hard failure, so one bad
@@ -63,8 +63,8 @@ const ingestRowSchema = z.object({
   devices: z
     .array(z.object({ device: z.string().min(1), sessions: z.number().int().nonnegative() }))
     .default([]),
-  // Month's lead counts, stored inside traffic_sources with the __lead__:
-  // prefix; the monthly-reports cron splits them back out into metrics.leads.
+  // Month's lead counts. Written to lead_metrics (org_id, date), which the
+  // monthly-reports cron sums into metrics.leads.
   leads: z
     .object({
       form: z.number().int().nonnegative().optional(),
@@ -143,9 +143,6 @@ export async function POST(request: NextRequest) {
       traffic_sources: [
         ...r.sources,
         ...r.devices.map((d) => ({ source: `${DEVICE_PREFIX}${d.device}`, sessions: d.sessions })),
-        ...Object.entries(r.leads ?? {})
-          .filter(([, count]) => typeof count === 'number' && count > 0)
-          .map(([kind, count]) => ({ source: `${LEAD_PREFIX}${kind}`, sessions: count })),
       ],
       top_pages: r.top_pages,
       // Marks the writer; distinguishes pushed rows from GA4-synced ones.
@@ -166,10 +163,39 @@ export async function POST(request: NextRequest) {
     upserted = upsertRows.length
   }
 
+  // Lead counts go to their own table, one row per (org_id, date), so a
+  // re-post of the same date replaces rather than doubles the count.
+  const leadRows = rows
+    .filter((r) => r.leads && orgBySlug.has(r.org_slug))
+    .map((r) => ({
+      org_id: orgBySlug.get(r.org_slug)!,
+      date: r.date,
+      form_leads: r.leads?.form ?? 0,
+      call_leads: r.leads?.call ?? 0,
+      ad_leads: r.leads?.ad ?? 0,
+    }))
+
+  let leadsUpserted = 0
+  if (leadRows.length > 0) {
+    const { error } = await supabase
+      .from('lead_metrics')
+      .upsert(leadRows, { onConflict: 'org_id,date' })
+
+    if (error) {
+      ops.error('system', 'ingest.analytics.leads', error.message, 'unknown')
+      await flush()
+      return NextResponse.json(
+        { error: 'Lead upsert failed', details: error.message, upserted },
+        { status: 500 }
+      )
+    }
+    leadsUpserted = leadRows.length
+  }
+
   ops.info('system', 'ingest.analytics', 'completed', {
-    metadata: { upserted, unknown_slugs: unknownSlugs },
+    metadata: { upserted, leads_upserted: leadsUpserted, unknown_slugs: unknownSlugs },
   })
   await flush()
 
-  return NextResponse.json({ upserted, unknown_slugs: unknownSlugs })
+  return NextResponse.json({ upserted, leads_upserted: leadsUpserted, unknown_slugs: unknownSlugs })
 }

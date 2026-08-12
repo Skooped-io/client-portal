@@ -6,6 +6,7 @@ import {
   aggregateLeads,
   aggregateReviewActivity,
   splitTrafficEntries,
+  type LeadRow,
   type ReviewRow,
 } from '@/lib/reports/aggregate'
 
@@ -123,7 +124,6 @@ const SECTION_BUILDERS: SectionBuilder[] = [
 
       const sourceTotals = new Map<string, number>()
       const deviceTotals = new Map<string, number>()
-      const leadTotals = new Map<string, number>()
       const pageTotals = new Map<string, number>()
       for (const r of rows) {
         const split = splitTrafficEntries(r.traffic_sources)
@@ -132,9 +132,6 @@ const SECTION_BUILDERS: SectionBuilder[] = [
         }
         for (const [device, sessions] of split.devices) {
           deviceTotals.set(device, (deviceTotals.get(device) ?? 0) + sessions)
-        }
-        for (const [kind, count] of split.leads) {
-          leadTotals.set(kind, (leadTotals.get(kind) ?? 0) + count)
         }
         // Two writer shapes exist in top_pages jsonb: ingest {path, pageviews} and
         // GA4-era/seed {page, views}. Accept both.
@@ -164,9 +161,6 @@ const SECTION_BUILDERS: SectionBuilder[] = [
         highlights.push(`Website visits down ${Math.abs(sessionsChange)}% month-over-month`)
       }
 
-      // Lead counts pushed alongside the analytics rows (see aggregate.ts).
-      const leads = aggregateLeads(leadTotals)
-
       return {
         metrics: {
           sessions,
@@ -177,10 +171,9 @@ const SECTION_BUILDERS: SectionBuilder[] = [
           ...(topSources.length > 0 ? { top_sources: topSources } : {}),
           ...(topPages.length > 0 ? { top_pages: topPages } : {}),
           ...(deviceSplit.length > 0 ? { device_split: deviceSplit } : {}),
-          ...leads.metrics,
         },
-        highlights: [...highlights, ...leads.highlights],
-        summaryLines: [line, ...leads.summaryLines],
+        highlights,
+        summaryLines: [line],
       }
     },
   },
@@ -248,6 +241,12 @@ const SECTION_BUILDERS: SectionBuilder[] = [
     },
   },
   {
+    key: 'leads',
+    table: 'lead_metrics',
+    label: 'lead counts',
+    build: (rows) => aggregateLeads(rows as LeadRow[]),
+  },
+  {
     key: 'gbp',
     table: 'gbp_metrics',
     label: 'Google Business Profile',
@@ -278,24 +277,22 @@ const SECTION_BUILDERS: SectionBuilder[] = [
  * Profile over the period.
  *
  * The GBP automation (2026-08-09) identifies a profile by `client_key`, its own
- * hand-seeded text identity, which equals the org slug for every CLIENT
- * location, so the join lives here instead of in a foreign key. Skooped's own
- * profile is client_key 'skooped' with no matching org, which is exactly what
- * keeps our own reviews out of client reports. Returns null when the client has
- * no managed profile or no activity, so the caller can leave the section out.
+ * hand-seeded text identity. `org_id` was added 2026-08-12 so review activity
+ * joins to a client properly; Skooped's own profile has no org_id, which is
+ * exactly what keeps our own reviews out of client reports. Returns null when
+ * the client has no managed profile or no activity, so the caller can leave the
+ * section out.
  */
 async function buildReviewSection(
   supabase: ReturnType<typeof createAdminClient>,
-  orgSlug: string | null,
+  orgId: string,
   periodStart: string,
   periodEnd: string
 ): Promise<SectionOutput | null> {
-  if (!orgSlug) return null
-
   const { data: locations } = await supabase
     .from('gbp_managed_locations')
     .select('id')
-    .eq('client_key', orgSlug)
+    .eq('org_id', orgId)
 
   const locationIds = (locations ?? []).map((l) => l.id as string)
   if (locationIds.length === 0) return null
@@ -402,7 +399,7 @@ export async function GET(request: NextRequest) {
   // Paying book only: reports_enabled defaults false and is flipped on per client.
   const { data: profiles, error: profilesError } = await supabase
     .from('business_profiles')
-    .select('org_id, business_name, plan, organizations(name, slug)')
+    .select('org_id, business_name, plan, organizations(name)')
     .eq('reports_enabled', true)
 
   if (profilesError) {
@@ -423,9 +420,8 @@ export async function GET(request: NextRequest) {
 
   for (const profile of profiles) {
     const orgId = profile.org_id as string
-    const org = profile.organizations as unknown as { name: string; slug: string } | null
+    const org = profile.organizations as unknown as { name: string } | null
     const name = org?.name || (profile.business_name as string) || 'Unknown client'
-    const slug = org?.slug ?? null
     const plan = (profile.plan as string | null) ?? null
 
     try {
@@ -494,7 +490,7 @@ export async function GET(request: NextRequest) {
 
       // Review activity comes from the GBP automation tables rather than a
       // metric table, so it runs outside the builder loop.
-      const reviews = await buildReviewSection(supabase, slug, periodStart, periodEnd)
+      const reviews = await buildReviewSection(supabase, orgId, periodStart, periodEnd)
       if (reviews) {
         Object.assign(metrics, reviews.metrics)
         highlights.push(...reviews.highlights)

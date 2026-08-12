@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEVICE_PREFIX,
-  LEAD_PREFIX,
   aggregateLeads,
   aggregateReviewActivity,
   isReservedSource,
@@ -10,61 +9,50 @@ import {
 } from '../aggregate'
 
 describe('splitTrafficEntries', () => {
-  it('separates real sources, devices and lead counts', () => {
-    const { sources, devices, leads } = splitTrafficEntries([
+  it('separates real sources from device rows', () => {
+    const { sources, devices } = splitTrafficEntries([
       { source: 'google.com', sessions: 8 },
       { source: `${DEVICE_PREFIX}mobile`, sessions: 12 },
       { source: `${DEVICE_PREFIX}desktop`, sessions: 5 },
-      { source: `${LEAD_PREFIX}form`, sessions: 8 },
-      { source: `${LEAD_PREFIX}call`, sessions: 10 },
     ])
 
     expect(sources).toEqual([{ source: 'google.com', sessions: 8 }])
     expect(devices.get('mobile')).toBe(12)
     expect(devices.get('desktop')).toBe(5)
-    expect(leads.get('form')).toBe(8)
-    expect(leads.get('call')).toBe(10)
   })
 
-  it('sums repeated keys rather than overwriting them', () => {
-    const { devices, leads } = splitTrafficEntries([
+  it('sums repeated devices rather than overwriting them', () => {
+    const { devices } = splitTrafficEntries([
       { source: `${DEVICE_PREFIX}mobile`, sessions: 3 },
       { source: `${DEVICE_PREFIX}mobile`, sessions: 4 },
-      { source: `${LEAD_PREFIX}form`, sessions: 1 },
-      { source: `${LEAD_PREFIX}form`, sessions: 2 },
     ])
     expect(devices.get('mobile')).toBe(7)
-    expect(leads.get('form')).toBe(3)
   })
 
   it('drops malformed entries instead of throwing', () => {
-    const { sources, devices, leads } = splitTrafficEntries([
+    const { sources, devices } = splitTrafficEntries([
       null,
       'nope',
       { source: 'google.com' },
       { sessions: 4 },
       { source: 'bing.com', sessions: Number.NaN },
       { source: DEVICE_PREFIX, sessions: 2 },
-      { source: LEAD_PREFIX, sessions: 2 },
       { source: 'yelp.com', sessions: 2 },
     ])
     expect(sources).toEqual([{ source: 'yelp.com', sessions: 2 }])
     expect(devices.size).toBe(0)
-    expect(leads.size).toBe(0)
   })
 
   it('returns empty results for non-array input', () => {
-    const { sources, devices, leads } = splitTrafficEntries(undefined)
+    const { sources, devices } = splitTrafficEntries(undefined)
     expect(sources).toEqual([])
     expect(devices.size).toBe(0)
-    expect(leads.size).toBe(0)
   })
 })
 
 describe('isReservedSource', () => {
-  it('flags device and lead rows, not real referrers', () => {
+  it('flags device rows, not real referrers', () => {
     expect(isReservedSource(`${DEVICE_PREFIX}mobile`)).toBe(true)
-    expect(isReservedSource(`${LEAD_PREFIX}form`)).toBe(true)
     expect(isReservedSource('google.com')).toBe(false)
   })
 })
@@ -129,7 +117,7 @@ describe('aggregateReviewActivity', () => {
 
 describe('aggregateLeads', () => {
   it('totals the kinds and keeps the breakdown', () => {
-    const out = aggregateLeads(new Map([['form', 8], ['call', 10], ['ad', 2]]))
+    const out = aggregateLeads([{ form_leads: 8, call_leads: 10, ad_leads: 2 }])
     expect(out.metrics.leads).toBe(20)
     expect(out.metrics.leads_form).toBe(8)
     expect(out.metrics.leads_call).toBe(10)
@@ -141,13 +129,29 @@ describe('aggregateLeads', () => {
   })
 
   it('omits zero kinds from the breakdown', () => {
-    const out = aggregateLeads(new Map([['form', 1]]))
+    const out = aggregateLeads([{ form_leads: 1, call_leads: 0, ad_leads: 0 }])
     expect(out.metrics).toEqual({ leads: 1, leads_form: 1 })
     expect(out.highlights).toEqual(['1 new lead this month'])
   })
 
+  it('sums multiple rows in the period', () => {
+    const out = aggregateLeads([
+      { form_leads: 2, call_leads: 1 },
+      { form_leads: 3, ad_leads: 4 },
+    ])
+    expect(out.metrics.leads).toBe(10)
+    expect(out.metrics.leads_form).toBe(5)
+    expect(out.metrics.leads_call).toBe(1)
+    expect(out.metrics.leads_ad).toBe(4)
+  })
+
+  it('tolerates null columns', () => {
+    const out = aggregateLeads([{ form_leads: null, call_leads: 3, ad_leads: null }])
+    expect(out.metrics).toEqual({ leads: 3, leads_call: 3 })
+  })
+
   it('produces nothing when there are no leads', () => {
-    const out = aggregateLeads(new Map([['form', 0]]))
+    const out = aggregateLeads([{ form_leads: 0, call_leads: 0, ad_leads: 0 }])
     expect(out.metrics).toEqual({})
     expect(out.highlights).toEqual([])
     expect(out.summaryLines).toEqual([])
