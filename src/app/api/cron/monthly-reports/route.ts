@@ -307,6 +307,33 @@ async function buildReviewSection(
   return aggregate
 }
 
+// ─── Central lead-router ledger (public.leads, keyed by site_id = org slug) ──
+
+/**
+ * Count of leads the skooped.io lead router stored for this client over the
+ * period. `leads.site_id` equals `organizations.slug` by convention (migration
+ * 20260812093000). This is the router's own ledger: it covers clients whose
+ * sites store nothing locally, and it is what the SMS/email alerts run from.
+ * Bridged sites that also keep a per-site table can have the same submission
+ * in both this ledger and a manual lead_metrics push, so the caller merges
+ * form counts as max(), never sum.
+ */
+async function countCentralLeads(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgSlug: string | null,
+  periodStart: string,
+  periodEnd: string
+): Promise<number> {
+  if (!orgSlug) return 0
+  const { count } = await supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('site_id', orgSlug)
+    .gte('created_at', `${periodStart}T00:00:00Z`)
+    .lte('created_at', `${periodEnd}T23:59:59.999Z`)
+  return count ?? 0
+}
+
 // ─── Digest email (owner only — clients are never emailed here) ──────────────
 
 const OWNER_EMAIL = 'joseph@skooped.io'
@@ -399,7 +426,7 @@ export async function GET(request: NextRequest) {
   // Paying book only: reports_enabled defaults false and is flipped on per client.
   const { data: profiles, error: profilesError } = await supabase
     .from('business_profiles')
-    .select('org_id, business_name, plan, organizations(name)')
+    .select('org_id, business_name, plan, organizations(name, slug)')
     .eq('reports_enabled', true)
 
   if (profilesError) {
@@ -420,9 +447,10 @@ export async function GET(request: NextRequest) {
 
   for (const profile of profiles) {
     const orgId = profile.org_id as string
-    const org = profile.organizations as unknown as { name: string } | null
+    const org = profile.organizations as unknown as { name: string; slug: string | null } | null
     const name = org?.name || (profile.business_name as string) || 'Unknown client'
     const plan = (profile.plan as string | null) ?? null
+    const orgSlug = org?.slug ?? null
 
     try {
       // Idempotency: one monthly report per org+period.
@@ -458,6 +486,11 @@ export async function GET(request: NextRequest) {
       const summaryLines: string[] = []
       const notWired: string[] = []
 
+      // Leads the central router ledger holds for this client this period. A
+      // manual lead_metrics push may cover the same submissions for a site
+      // that also stores locally, so form counts merge as max(), never sum.
+      const centralForm = await countCentralLeads(supabase, orgSlug, periodStart, periodEnd)
+
       for (const builder of SECTION_BUILDERS) {
         const [curRes, prevRes] = await Promise.all([
           supabase
@@ -474,8 +507,21 @@ export async function GET(request: NextRequest) {
             .lte('date', prevEnd),
         ])
 
-        const rows = (curRes.data ?? []) as MetricRow[]
+        let rows = (curRes.data ?? []) as MetricRow[]
         const prevRows = (prevRes.data ?? []) as MetricRow[]
+
+        if (builder.key === 'leads' && centralForm > 0) {
+          const pushedForm = (rows as LeadRow[]).reduce(
+            (acc, r) => acc + (typeof r.form_leads === 'number' ? r.form_leads : 0),
+            0
+          )
+          if (centralForm > pushedForm) {
+            rows = [
+              ...(rows as LeadRow[]).map((r) => ({ ...r, form_leads: 0 })),
+              { form_leads: centralForm },
+            ] as unknown as MetricRow[]
+          }
+        }
 
         if (rows.length === 0) {
           notWired.push(builder.label)
