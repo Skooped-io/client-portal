@@ -12,7 +12,9 @@
     "test:e2e": "playwright test",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "load-gbp-posts": "tsx --env-file=.env.local scripts/load-gbp-posts.ts",
-    "db:apply": "tsx scripts/apply-sql.ts"
+    "db:apply": "tsx scripts/apply-sql.ts",
+    "capture-link": "tsx scripts/create-capture-link.ts",
+    "ensure-bucket": "tsx scripts/ensure-client-assets-bucket.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
