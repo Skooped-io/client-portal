@@ -8,7 +8,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
+// SVG removed 2026-08-13: scriptable content in a public bucket is a stored-XSS
+// vector, and no production caller ever uploaded one (authed side unused).
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 /**
  * POST /api/upload
