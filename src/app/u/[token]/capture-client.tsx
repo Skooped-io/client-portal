@@ -8,7 +8,6 @@ import {
   Film,
   ImageIcon,
   Loader2,
-  RotateCcw,
   X,
 } from 'lucide-react'
 import {
@@ -69,42 +68,59 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
   const [sentCount, setSentCount] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const idRef = useRef(0)
+  // Guards a fast double-tap on Send: state-driven disabled lands a render late
+  const uploadingRef = useRef(false)
 
-  const addFiles = useCallback((list: FileList | null) => {
-    if (!list) return
-    setNotice(null)
-    const rejected: string[] = []
-    const additions: Item[] = []
+  const addFiles = useCallback(
+    (list: FileList | null) => {
+      if (!list) return
+      setNotice(null)
+      const rejected: string[] = []
+      const additions: Item[] = []
 
-    for (const file of Array.from(list)) {
-      if (!(file.type in ALLOWED_TYPES)) {
-        rejected.push(`${file.name || 'A file'} is not a supported photo or video`)
-        continue
+      for (const file of Array.from(list)) {
+        if (!(file.type in ALLOWED_TYPES)) {
+          rejected.push(`${file.name || 'A file'} is not a supported photo or video`)
+          continue
+        }
+        if (file.size <= 0) {
+          rejected.push(`${file.name || 'A file'} is empty and was skipped`)
+          continue
+        }
+        if (file.size > maxBytesFor(file.type)) {
+          const mb = Math.round(maxBytesFor(file.type) / 1024 / 1024)
+          rejected.push(`${file.name || 'A file'} is over the ${mb}MB limit`)
+          continue
+        }
+        idRef.current += 1
+        additions.push({
+          id: `f${idRef.current}`,
+          file,
+          preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+          status: 'ready',
+          loaded: 0,
+        })
       }
-      if (file.size > maxBytesFor(file.type)) {
-        const mb = Math.round(maxBytesFor(file.type) / 1024 / 1024)
-        rejected.push(`${file.name || 'A file'} is over the ${mb}MB limit`)
-        continue
-      }
-      idRef.current += 1
-      additions.push({
-        id: `f${idRef.current}`,
-        file,
-        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-        status: 'ready',
-        loaded: 0,
+
+      // Cap math happens OUTSIDE the setItems updater: a message pushed inside
+      // the updater can be lost when React defers the updater past the
+      // setNotice call that follows.
+      const room = Math.max(0, MAX_FILES_PER_REQUEST - items.length)
+      const kept = additions.slice(0, room)
+      const dropped = additions.slice(room)
+      dropped.forEach((d) => {
+        if (d.preview) URL.revokeObjectURL(d.preview)
       })
-    }
-
-    setItems((prev) => {
-      const merged = [...prev, ...additions]
-      if (merged.length > MAX_FILES_PER_REQUEST) {
-        rejected.push(`Maximum ${MAX_FILES_PER_REQUEST} files per send. Extra files were skipped`)
+      if (dropped.length > 0) {
+        rejected.push(
+          `Maximum ${MAX_FILES_PER_REQUEST} files per send. ${dropped.length} skipped, send these first`
+        )
       }
-      return merged.slice(0, MAX_FILES_PER_REQUEST)
-    })
-    if (rejected.length > 0) setNotice(rejected.join('. '))
-  }, [])
+      if (kept.length > 0) setItems((prev) => [...prev, ...kept].slice(0, MAX_FILES_PER_REQUEST))
+      if (rejected.length > 0) setNotice(rejected.join('. '))
+    },
+    [items.length]
+  )
 
   const removeItem = useCallback((id: string) => {
     setItems((prev) => {
@@ -119,8 +135,10 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
   }, [])
 
   const upload = useCallback(async () => {
+    if (uploadingRef.current) return
     const pending = items.filter((i) => i.status === 'ready' || i.status === 'error')
     if (pending.length === 0) return
+    uploadingRef.current = true
     setNotice(null)
     setPhase('uploading')
     pending.forEach((i) => updateItem(i.id, { status: 'uploading', loaded: 0, error: undefined }))
@@ -146,6 +164,7 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
       pending.forEach((i) => updateItem(i.id, { status: 'error', error: msg }))
       setNotice(msg)
       setPhase('pick')
+      uploadingRef.current = false
       return
     }
 
@@ -163,11 +182,22 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
     }
 
     if (landed.length > 0) {
-      fetch('/api/capture/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, paths: landed }),
-      }).catch(() => {})
+      // Awaited with keepalive so a crew member swiping away right after the
+      // success screen doesn't abort the ledger confirmation. Failure is not
+      // surfaced: the files themselves already landed in storage.
+      const confirm = () =>
+        fetch('/api/capture/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, paths: landed }),
+          keepalive: true,
+        })
+      try {
+        const res = await confirm()
+        if (!res.ok) await confirm().catch(() => {})
+      } catch {
+        await confirm().catch(() => {})
+      }
     }
 
     if (landed.length === pending.length) {
@@ -183,8 +213,14 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
       )
       setPhase('pick')
       if (landed.length > 0) setSentCount((prev) => prev + landed.length)
-      setItems((prev) => prev.filter((i) => i.status !== 'done'))
+      setItems((prev) =>
+        prev.filter((i) => {
+          if (i.status === 'done' && i.preview) URL.revokeObjectURL(i.preview)
+          return i.status !== 'done'
+        })
+      )
     }
+    uploadingRef.current = false
   }, [items, job, token, updateItem])
 
   const totalBytes = items.reduce((sum, i) => sum + i.file.size, 0)
@@ -314,9 +350,9 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
                   <CheckCircle2 className="h-6 w-6 shrink-0 text-green-500" />
                 ) : item.status === 'uploading' ? (
                   <Loader2 className="h-6 w-6 shrink-0 animate-spin text-slate-400" />
-                ) : item.status === 'error' ? (
-                  <RotateCcw className="h-6 w-6 shrink-0 text-amber-500" />
                 ) : (
+                  // ready AND error items are removable: without this, one
+                  // rejected file would dead-end the whole batch
                   <button
                     onClick={() => removeItem(item.id)}
                     aria-label="Remove"

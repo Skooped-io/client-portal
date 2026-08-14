@@ -19,7 +19,11 @@ export const ALLOWED_TYPES: Record<string, string> = {
 }
 
 export const MAX_IMAGE_BYTES = 25 * 1024 * 1024 // 25MB: covers 48MP phone photos
-export const MAX_VIDEO_BYTES = 300 * 1024 * 1024 // 300MB: minutes of 4K, not just 10s
+// Supabase global per-file cap on the current plan, measured 2026-08-13:
+// 50MiB PUT succeeds, 51MiB returns 413 EntityTooLarge. A 10s 1080p phone
+// clip is ~10-15MB, so this fits the ask; raise it if the project moves to
+// a plan with a higher storage cap.
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024
 export const MAX_FILES_PER_REQUEST = 12
 export const MAX_JOB_LENGTH = 40
 
