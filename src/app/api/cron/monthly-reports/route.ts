@@ -317,6 +317,12 @@ async function buildReviewSection(
  * Bridged sites that also keep a per-site table can have the same submission
  * in both this ledger and a manual lead_metrics push, so the caller merges
  * form counts as max(), never sum.
+ *
+ * Spam rows are excluded (migration 20260823000000). The router flags
+ * solicitations and stores them rather than dropping them, so they stay
+ * available as the false-positive audit trail — but a client's proof-of-value
+ * number must never be inflated by junk they did not want in the first place.
+ * Same honest-numbers rule as subtracting bot traffic.
  */
 async function countCentralLeads(
   supabase: ReturnType<typeof createAdminClient>,
@@ -329,6 +335,7 @@ async function countCentralLeads(
     .from('leads')
     .select('id', { count: 'exact', head: true })
     .eq('site_id', orgSlug)
+    .eq('spam', false)
     .gte('created_at', `${periodStart}T00:00:00Z`)
     .lte('created_at', `${periodEnd}T23:59:59.999Z`)
   return count ?? 0
