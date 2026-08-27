@@ -6,7 +6,10 @@ import {
   MAX_FILES_PER_REQUEST,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
+  MAX_LOCATION_LENGTH,
+  MAX_NOTES_LENGTH,
   buildObjectPath,
+  cleanFreeText,
   quotaExceeded,
   slugifyJob,
   validateFiles,
@@ -115,5 +118,31 @@ describe('quotaExceeded', () => {
     expect(
       quotaExceeded({ fileCount: 0, totalBytes: DAILY_BYTES_LIMIT - file.size }, [file])
     ).toBeNull()
+  })
+})
+
+describe('cleanFreeText', () => {
+  it('trims, collapses whitespace, strips control characters', () => {
+    expect(cleanFreeText('  Franklin,\n\tTN  \u0000', MAX_LOCATION_LENGTH)).toBe('Franklin, TN')
+  })
+
+  it('keeps hyphens and punctuation intact', () => {
+    expect(cleanFreeText('6-ft cedar privacy fence - Spring Hill', MAX_NOTES_LENGTH)).toBe(
+      '6-ft cedar privacy fence - Spring Hill'
+    )
+  })
+
+  it('returns null for non-strings and effectively empty input', () => {
+    expect(cleanFreeText(undefined, MAX_NOTES_LENGTH)).toBeNull()
+    expect(cleanFreeText(42, MAX_NOTES_LENGTH)).toBeNull()
+    expect(cleanFreeText('   \u0001\u0002  ', MAX_NOTES_LENGTH)).toBeNull()
+  })
+
+  it('caps length and never ends on a dangling space', () => {
+    const long = 'a'.repeat(10) + ' ' + 'b'.repeat(MAX_NOTES_LENGTH)
+    const out = cleanFreeText(long, MAX_NOTES_LENGTH)
+    expect(out).not.toBeNull()
+    expect(out!.length).toBeLessThanOrEqual(MAX_NOTES_LENGTH)
+    expect(out!.endsWith(' ')).toBe(false)
   })
 })

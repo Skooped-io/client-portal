@@ -5,7 +5,10 @@ import { portal } from '@/lib/logger'
 import {
   DAILY_BYTES_LIMIT,
   DAILY_FILE_LIMIT,
+  MAX_LOCATION_LENGTH,
+  MAX_NOTES_LENGTH,
   buildObjectPath,
+  cleanFreeText,
   slugifyJob,
   validateFiles,
 } from '@/lib/capture/validate'
@@ -24,7 +27,8 @@ const MIN_TOKEN_LENGTH = 16
  * Vercel function body (4.5MB limit). Every issued URL is recorded in
  * capture_uploads, which is also what the per-org daily quota counts.
  *
- * Body: { token: string, job?: string, files: [{ type, size }] }
+ * Body: { token: string, job?: string, location?: string, notes?: string,
+ *         files: [{ type, size }] }
  * Response: { job: string, uploads: [{ path, signedUrl }] }
  */
 export async function POST(request: NextRequest) {
@@ -35,9 +39,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
-  const { token, job, files } = (body ?? {}) as {
+  const { token, job, location, notes, files } = (body ?? {}) as {
     token?: unknown
     job?: unknown
+    location?: unknown
+    notes?: unknown
     files?: unknown
   }
 
@@ -63,6 +69,8 @@ export async function POST(request: NextRequest) {
 
   const now = new Date()
   const jobSlug = slugifyJob(job, now)
+  const cleanLocation = cleanFreeText(location, MAX_LOCATION_LENGTH)
+  const cleanNotes = cleanFreeText(notes, MAX_NOTES_LENGTH)
 
   try {
     const files = validation.files.map((file, index) => ({
@@ -91,6 +99,8 @@ export async function POST(request: NextRequest) {
       })),
       p_max_files: DAILY_FILE_LIMIT,
       p_max_bytes: DAILY_BYTES_LIMIT,
+      p_location: cleanLocation,
+      p_notes: cleanNotes,
     })
 
     if (reserveError) {

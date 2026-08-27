@@ -13,6 +13,8 @@ import {
 import {
   ALLOWED_TYPES,
   MAX_FILES_PER_REQUEST,
+  MAX_LOCATION_LENGTH,
+  MAX_NOTES_LENGTH,
   maxBytesFor,
   isVideo,
 } from '@/lib/capture/validate'
@@ -63,6 +65,8 @@ function putFile(
 export function CaptureClient({ token, orgName }: CaptureClientProps) {
   const [items, setItems] = useState<Item[]>([])
   const [job, setJob] = useState('')
+  const [location, setLocation] = useState('')
+  const [notes, setNotes] = useState('')
   const [phase, setPhase] = useState<Phase>('pick')
   const [notice, setNotice] = useState<string | null>(null)
   const [sentCount, setSentCount] = useState(0)
@@ -151,6 +155,8 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
         body: JSON.stringify({
           token,
           job,
+          location,
+          notes,
           files: pending.map((i) => ({ type: i.file.type, size: i.file.size })),
         }),
       })
@@ -221,7 +227,7 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
       )
     }
     uploadingRef.current = false
-  }, [items, job, token, updateItem])
+  }, [items, job, location, notes, token, updateItem])
 
   const totalBytes = items.reduce((sum, i) => sum + i.file.size, 0)
   const loadedBytes = items.reduce((sum, i) => sum + i.loaded, 0)
@@ -274,6 +280,32 @@ export function CaptureClient({ token, orgName }: CaptureClientProps) {
             maxLength={60}
             disabled={uploading}
             className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+          />
+        </label>
+
+        <label className="mt-3 block">
+          <span className="text-sm font-medium text-slate-700">Location (optional)</span>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="City or neighborhood"
+            maxLength={MAX_LOCATION_LENGTH}
+            disabled={uploading}
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+          />
+        </label>
+
+        <label className="mt-3 block">
+          <span className="text-sm font-medium text-slate-700">About this job (optional)</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Type of work, materials, anything worth mentioning"
+            maxLength={MAX_NOTES_LENGTH}
+            rows={2}
+            disabled={uploading}
+            className="mt-1 w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
           />
         </label>
 

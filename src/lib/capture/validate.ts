@@ -26,6 +26,8 @@ export const MAX_IMAGE_BYTES = 25 * 1024 * 1024 // 25MB: covers 48MP phone photo
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024
 export const MAX_FILES_PER_REQUEST = 12
 export const MAX_JOB_LENGTH = 40
+export const MAX_LOCATION_LENGTH = 60
+export const MAX_NOTES_LENGTH = 240
 
 // Per-org, per-UTC-day. Generous for a crew, a wall for a leaked token.
 export const DAILY_FILE_LIMIT = 200
@@ -105,6 +107,22 @@ export function slugifyJob(raw: unknown, now: Date): string {
     .slice(0, MAX_JOB_LENGTH)
     .replace(/-+$/g, '')
   return slug.length >= 2 ? slug : fallback
+}
+
+/**
+ * Free-text intake fields (location, notes) stored verbatim on the ledger.
+ * Control characters stripped, whitespace collapsed, hard length cap; null
+ * when nothing usable remains so blank stays blank in the table.
+ */
+export function cleanFreeText(raw: unknown, maxLength: number): string | null {
+  if (typeof raw !== 'string') return null
+  const text = raw
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+    .trim()
+  return text.length > 0 ? text : null
 }
 
 /**
