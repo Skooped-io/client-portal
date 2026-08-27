@@ -34,9 +34,9 @@ export async function middleware(request: NextRequest) {
   const isOnboardingPage = pathname.startsWith('/onboarding')
   const isApiRoute = pathname.startsWith('/api')
   // Public tokenized pages — no login required:
-  // /r/[token] report pages, /u/[token] crew upload pages
+  // /r/[token] report pages, /u/[token] crew upload pages, /m/[token] material pages
   const isPublicReportPage = pathname.startsWith('/r/')
-  const isPublicCapturePage = pathname.startsWith('/u/')
+  const isPublicCapturePage = pathname.startsWith('/u/') || pathname.startsWith('/m/')
 
   // Unauthenticated: redirect to login (except auth pages, API routes, public token pages)
   if (!user && !isAuthPage && !isApiRoute && !isPublicReportPage && !isPublicCapturePage) {
