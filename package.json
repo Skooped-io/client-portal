@@ -14,6 +14,7 @@
     "load-gbp-posts": "tsx --env-file=.env.local scripts/load-gbp-posts.ts",
     "db:apply": "tsx scripts/apply-sql.ts",
     "capture-link": "tsx scripts/create-capture-link.ts",
+    "material-link": "tsx scripts/create-material-link.ts",
     "ensure-bucket": "tsx scripts/ensure-client-assets-bucket.ts"
   },
   "dependencies": {
