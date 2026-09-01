@@ -19,11 +19,11 @@ export const ALLOWED_TYPES: Record<string, string> = {
 }
 
 export const MAX_IMAGE_BYTES = 25 * 1024 * 1024 // 25MB: covers 48MP phone photos
-// Supabase global per-file cap on the current plan, measured 2026-08-13:
-// 50MiB PUT succeeds, 51MiB returns 413 EntityTooLarge. A 10s 1080p phone
-// clip is ~10-15MB, so this fits the ask; raise it if the project moves to
-// a plan with a higher storage cap.
-export const MAX_VIDEO_BYTES = 50 * 1024 * 1024
+// 500MiB: ~3 min of iPhone 4K30, ~8 min at the 1080p30 default. Supabase org
+// moved to Pro 2026-08-31; the Storage "Global file size limit" was raised to
+// match and the client-assets bucket fileSizeLimit mirrors this constant via
+// scripts/ensure-client-assets-bucket.ts. (Free plan history: 50MiB hard cap, 2026-08-13.)
+export const MAX_VIDEO_BYTES = 500 * 1024 * 1024
 export const MAX_FILES_PER_REQUEST = 12
 export const MAX_JOB_LENGTH = 40
 export const MAX_LOCATION_LENGTH = 60
@@ -31,7 +31,7 @@ export const MAX_NOTES_LENGTH = 240
 
 // Per-org, per-UTC-day. Generous for a crew, a wall for a leaked token.
 export const DAILY_FILE_LIMIT = 200
-export const DAILY_BYTES_LIMIT = 4 * 1024 * 1024 * 1024 // 4GB
+export const DAILY_BYTES_LIMIT = 10 * 1024 * 1024 * 1024 // 10GB (~20 max-size clips)
 
 export interface CaptureFileMeta {
   type: string
