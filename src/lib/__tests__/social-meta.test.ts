@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   debugToken,
   fbPublishPhotoPost,
+  fbPublishVideo,
   fbSchedulePhotoPost,
+  fbGetPost,
   GRAPH_VERSION,
   igCreateCarousel,
   igCreateImageContainer,
@@ -11,6 +13,7 @@ import {
   igPublishingLimit,
   igResolveUserId,
   igWaitForContainer,
+  isMetaObjectMissing,
   isTransientMetaError,
   MetaApiError,
   MetaScheduleMismatchError,
@@ -20,7 +23,7 @@ const TOKEN = 'EAAsecret-token-value'
 const PAGE = '609517762255384'
 const IG = '17841405822304914'
 
-type Call = { url: URL; method: string; body: URLSearchParams | null }
+type Call = { url: URL; method: string; body: URLSearchParams | null; auth: string | null }
 
 function reply(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) }
@@ -36,6 +39,7 @@ function queue(...responses: Array<ReturnType<typeof reply>>) {
       url,
       method: init?.method ?? 'GET',
       body: typeof init?.body === 'string' ? new URLSearchParams(init.body) : null,
+      auth: (init?.headers as Record<string, string> | undefined)?.Authorization ?? null,
     })
     const next = responses.shift()
     if (!next) throw new Error(`unexpected fetch #${calls.length}: ${init?.method} ${url.pathname}`)
@@ -52,13 +56,14 @@ afterEach(() => {
 })
 
 describe('graph transport', () => {
-  it('pins the API version and keeps the token out of the URL on writes', async () => {
+  it('pins the API version and carries the token ONLY in the Authorization header', async () => {
     queue(reply(200, { id: '1', post_id: `${PAGE}_1` }))
     await fbPublishPhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'hi' })
     const c = calls[0]
     expect(c.url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}/photos`)
     expect(c.url.toString()).not.toContain(TOKEN)
-    expect(c.body?.get('access_token')).toBe(TOKEN)
+    expect(c.body?.has('access_token')).toBe(false)
+    expect(c.auth).toBe(`Bearer ${TOKEN}`)
     expect(c.body?.get('url')).toBe('https://x/a.jpg')
     expect(c.body?.get('caption')).toBe('hi')
     expect(c.body?.has('published')).toBe(false)
@@ -303,7 +308,8 @@ describe('debugToken', () => {
     expect(info.isValid).toBe(true)
     expect(info.expiresAt).toBeNull()
     expect(info.scopes).toEqual(['pages_manage_posts'])
-    expect(calls[0].url.searchParams.get('access_token')).toBe('app1|shh')
+    expect(calls[0].url.searchParams.has('access_token')).toBe(false)
+    expect(calls[0].auth).toBe('Bearer app1|shh')
     expect(calls[0].url.searchParams.get('input_token')).toBe(TOKEN)
   })
 })

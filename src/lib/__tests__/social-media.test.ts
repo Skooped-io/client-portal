@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
-import { derivedPath, isHeic, MAX_RATIO, MAX_WIDTH, MIN_RATIO, paddingFor, renderForMeta } from '../social/media'
+import {
+  derivedPath,
+  isHeic,
+  MAX_RATIO,
+  MAX_WIDTH,
+  MIN_RATIO,
+  paddingFor,
+  renderForMeta,
+  renderSharpForMeta,
+} from '../social/media'
 
 describe('paddingFor', () => {
   it('leaves legal ratios alone', () => {
@@ -25,6 +34,20 @@ describe('paddingFor', () => {
     expect(p.top + p.bottom).toBe(p.height - 1000)
     expect(p.width / p.height).toBeLessThanOrEqual(MAX_RATIO)
   })
+  it('with a target ratio, pads to exactly that ratio in either direction', () => {
+    // Landscape photo forced to a portrait 4:5 first frame: side margins.
+    const p = paddingFor(1600, 900, 0.8)
+    expect(p.width).toBe(1600)
+    expect(p.height).toBe(2000)
+    expect(p.top + p.bottom).toBe(1100)
+    // Portrait photo forced to a landscape first frame: top/bottom margins.
+    const q = paddingFor(800, 1000, 1.5)
+    expect(q.width).toBe(1500)
+    expect(q.height).toBe(1000)
+    expect(q.left + q.right).toBe(700)
+    // Already at the target: nothing.
+    expect(paddingFor(1000, 1250, 0.8)).toEqual({ width: 1000, height: 1250, left: 0, top: 0, right: 0, bottom: 0 })
+  })
 })
 
 describe('derivedPath', () => {
@@ -33,6 +56,12 @@ describe('derivedPath', () => {
     expect(a).toBe(derivedPath('org-1/captures/job/1.heic'))
     expect(a).toMatch(/^org-1\/derived\/[0-9a-f]{40}\.jpg$/)
     expect(derivedPath('org-1/captures/job/2.heic')).not.toBe(a)
+  })
+  it('a forced carousel ratio gets its own derived object', () => {
+    const free = derivedPath('org-1/captures/job/1.heic')
+    const forced = derivedPath('org-1/captures/job/1.heic', 0.8)
+    expect(forced).not.toBe(free)
+    expect(forced).toBe(derivedPath('org-1/captures/job/1.heic', 0.8))
   })
 })
 
@@ -100,5 +129,48 @@ describe('renderForMeta', () => {
     expect(out.height).toBe(100)
     expect(out.width).toBe(80) // 50 wide padded up to 4:5 of 100 tall
     expect(meta.orientation).toBeUndefined()
+  })
+
+  it('renders a RAW-input pipeline (the HEIC path) without re-feeding raw pixels as an encoded image', async () => {
+    // heic-decode hands us RGBA pixels; the pipeline must survive that shape.
+    const width = 300
+    const height = 3000 // 1:10 portrait, needs padding
+    const rgba = Buffer.alloc(width * height * 4)
+    for (let i = 0; i < width * height; i++) {
+      rgba[i * 4] = 10
+      rgba[i * 4 + 1] = 20
+      rgba[i * 4 + 2] = 30
+      rgba[i * 4 + 3] = 255
+    }
+    const base = sharp(rgba, { raw: { width, height, channels: 4 } })
+    const out = await renderSharpForMeta(base)
+    const meta = await sharp(out.buffer).metadata()
+    expect(meta.format).toBe('jpeg')
+    expect(out.height).toBe(height)
+    expect(out.width).toBe(Math.ceil(height * MIN_RATIO))
+    expect(meta.width).toBe(out.width)
+    // Left margin is white, the centre pixel is the source colour.
+    const { data, info } = await sharp(out.buffer).raw().toBuffer({ resolveWithObject: true })
+    const px = (x: number, y: number) => {
+      const o = (y * info.width + x) * info.channels
+      return [data[o], data[o + 1], data[o + 2]]
+    }
+    expect(px(0, 0)).toEqual([255, 255, 255])
+    const [r, g, b] = px(Math.floor(info.width / 2), Math.floor(info.height / 2))
+    expect(Math.abs(r - 10)).toBeLessThan(6)
+    expect(Math.abs(g - 20)).toBeLessThan(6)
+    expect(Math.abs(b - 30)).toBeLessThan(6)
+  })
+
+  it('pads to a forced target ratio for carousel items', async () => {
+    const landscape = await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#123456' } })
+      .jpeg()
+      .toBuffer()
+    const out = await renderForMeta(landscape, 'image/jpeg', 0.8)
+    expect(out.width).toBe(1200)
+    expect(out.height).toBe(1500)
+    const meta = await sharp(out.buffer).metadata()
+    expect(meta.width).toBe(1200)
+    expect(meta.height).toBe(1500)
   })
 })

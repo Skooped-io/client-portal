@@ -8,10 +8,14 @@
 --
 --   facebook  → a Meta SCHEDULED post is created immediately
 --               (published=false + scheduled_publish_time) so it shows up in
---               Business Suite Planner and goes live on its own. Row status
---               'scheduled'. Inside the 10-minute window it publishes now.
+--               Business Suite Planner and goes live on its own (20 min – 29 days
+--               out). Row status
+--               'scheduled'. Inside 2 minutes it publishes now; 2–20 min out the
+--               cron posts it.
 --   instagram → IG has no scheduling API. Row status 'approved'; the
---               /api/cron/social-publish cron (every 5 min) publishes it at
+--               /api/cron/social-publish route (hit every 5 min by the GitHub
+--               Actions workflow .github/workflows/social-publish.yml; Vercel
+--               Hobby only runs daily crons) publishes it at
 --               scheduled_at. Unapprove/cancel is possible until then.
 --
 -- Two tables:
@@ -70,14 +74,16 @@ CREATE TABLE IF NOT EXISTS public.social_posts (
   -- draft      → editable, nothing sent
   -- approved   → (IG) waiting for the cron; unapprove returns it to draft
   -- scheduled  → (FB) Meta holds the scheduled post; cancel deletes it there
-  -- publishing → claimed by a cron run (compare-and-swap, never re-claimed)
+  -- publishing → claimed by a cron run or the approve route (compare-and-swap,
+  --               never re-claimed; swept to failed after 15 min if the run died)
   -- published  → live; capture_uploads.posted_at stamped
-  -- failed     → last_error set; Approve again to retry
+  -- failed     → last_error set; Approve again to retry (resumes ig_container_id)
   -- cancelled  → terminal
   status text NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft', 'approved', 'scheduled', 'publishing', 'published', 'failed', 'cancelled')),
   last_error text,
-  -- Number of publish attempts made by the cron (transient errors retry up to 3).
+  -- Publish attempts since the last approve (reset to 0 on approve/retry;
+  -- transient errors retry up to 3).
   attempts integer NOT NULL DEFAULT 0,
   group_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),

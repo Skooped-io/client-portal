@@ -5,9 +5,11 @@ import {
   CAPTION_LIMITS,
   CAROUSEL_MAX,
   countHashtags,
+  countMentions,
   defaultScheduleAt,
   failureOutcome,
   FB_NATIVE_MAX_MS,
+  FB_NATIVE_MIN_MS,
   isDue,
   MAX_ATTEMPTS,
   mediaKind,
@@ -109,8 +111,23 @@ describe('validateCaption', () => {
     const thirty = Array.from({ length: 30 }, (_, i) => `#tag${i}`).join(' ')
     expect(validateCaption(thirty, 'instagram').ok).toBe(true)
   })
+  it('caps Instagram at 20 @mentions, Facebook does not care', () => {
+    const tags = Array.from({ length: 21 }, (_, i) => `@crew${i}`).join(' ')
+    expect(validateCaption(tags, 'instagram').ok).toBe(false)
+    expect(validateCaption(tags, 'facebook').ok).toBe(true)
+    const twenty = Array.from({ length: 20 }, (_, i) => `@crew${i}`).join(' ')
+    expect(validateCaption(twenty, 'instagram').ok).toBe(true)
+  })
   it('rejects non-strings', () => {
     expect(validateCaption(42, 'facebook').ok).toBe(false)
+  })
+})
+
+describe('countMentions', () => {
+  it('counts word-start mentions only', () => {
+    expect(countMentions('@gunns_fencing_co and @franklin.tn')).toBe(2)
+    expect(countMentions('mail me@example.com')).toBe(0)
+    expect(countMentions('none')).toBe(0)
   })
 })
 
@@ -123,30 +140,44 @@ describe('countHashtags', () => {
 })
 
 describe('parseScheduledAt', () => {
-  it('accepts ISO, null, empty; rejects junk', () => {
+  it('accepts ISO with an offset, null, empty; rejects junk', () => {
     expect(parseScheduledAt('2026-09-01T14:00:00.000Z')).toEqual({ ok: true, value: new Date('2026-09-01T14:00:00Z') })
+    expect(parseScheduledAt('2026-09-01T09:00:00-05:00')).toEqual({ ok: true, value: new Date('2026-09-01T14:00:00Z') })
     expect(parseScheduledAt(null)).toEqual({ ok: true, value: null })
     expect(parseScheduledAt('')).toEqual({ ok: true, value: null })
     expect(parseScheduledAt('tomorrow-ish').ok).toBe(false)
     expect(parseScheduledAt(12345).ok).toBe(false)
   })
+  it('refuses an offset-less datetime (would silently shift by the server zone)', () => {
+    const r = parseScheduledAt('2026-09-02T09:00')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/timezone offset/)
+    expect(parseScheduledAt('2026-09-02T09:00:00').ok).toBe(false)
+  })
 })
 
 describe('scheduleMode', () => {
   const at = (ms: number) => new Date(NOW.getTime() + ms)
-  it('publishes now when unset, in the past, or under 10 minutes out', () => {
+  it('publishes now when unset, in the past, or under 2 minutes out', () => {
     expect(scheduleMode(null, NOW, 'facebook')).toBe('publish-now')
     expect(scheduleMode(at(-1000), NOW, 'instagram')).toBe('publish-now')
     expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS - 1), NOW, 'facebook')).toBe('publish-now')
     expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS - 1), NOW, 'instagram')).toBe('publish-now')
   })
-  it('uses Meta scheduling for Facebook inside 10 min – 30 days', () => {
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'facebook')).toBe('fb-native')
+  it('2–20 minutes out is the cron on either platform (Meta floor margin)', () => {
+    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'facebook')).toBe('cron')
+    expect(scheduleMode(at(10 * 60 * 1000), NOW, 'facebook')).toBe('cron')
+    expect(scheduleMode(at(FB_NATIVE_MIN_MS - 1), NOW, 'facebook')).toBe('cron')
+    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'instagram')).toBe('cron')
+  })
+  it('uses Meta scheduling for Facebook inside 20 min – 29 days', () => {
+    expect(scheduleMode(at(FB_NATIVE_MIN_MS), NOW, 'facebook')).toBe('fb-native')
     expect(scheduleMode(at(FB_NATIVE_MAX_MS), NOW, 'facebook')).toBe('fb-native')
     expect(scheduleMode(at(FB_NATIVE_MAX_MS + 1), NOW, 'facebook')).toBe('cron')
+    expect(FB_NATIVE_MAX_MS).toBeLessThan(30 * 24 * 60 * 60 * 1000)
   })
   it('always uses the cron for a future Instagram post', () => {
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'instagram')).toBe('cron')
+    expect(scheduleMode(at(FB_NATIVE_MIN_MS), NOW, 'instagram')).toBe('cron')
     expect(scheduleMode(at(FB_NATIVE_MAX_MS * 2), NOW, 'instagram')).toBe('cron')
   })
 })
@@ -168,6 +199,8 @@ describe('transition (state machine)', () => {
   it('draft → approved → scheduled/publishing → published', () => {
     expect(transition(from('draft'), 'approve')).toEqual({ ok: true, value: 'approved' })
     expect(transition(from('approved'), 'fb_scheduled')).toEqual({ ok: true, value: 'scheduled' })
+    // The approve route claims into 'publishing' before the Meta scheduling call.
+    expect(transition(from('publishing'), 'fb_scheduled')).toEqual({ ok: true, value: 'scheduled' })
     expect(transition(from('approved'), 'claim')).toEqual({ ok: true, value: 'publishing' })
     expect(transition(from('publishing'), 'published')).toEqual({ ok: true, value: 'published' })
     expect(transition(from('scheduled'), 'published')).toEqual({ ok: true, value: 'published' })

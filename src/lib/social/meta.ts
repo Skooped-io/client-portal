@@ -13,10 +13,12 @@
  *   IG                 POST /{ig-user-id}/media (container) → poll
  *                      status_code → POST /{ig-user-id}/media_publish
  *
- * Rules: every call takes { token } explicitly; tokens go in the request
- * body or query and are never logged, never put in error messages. Errors are
- * MetaApiError with Meta's code / error_subcode / message so callers can tell
- * a rate limit (retry) from a bad token (stop).
+ * Rules: every call takes { token } explicitly; the token travels ONLY in the
+ * Authorization: Bearer header (never the query string or body, so it can
+ * never land in a Sentry span's http.query or a fetch breadcrumb) and is
+ * never logged, never put in error messages. Errors are MetaApiError with
+ * Meta's code / error_subcode / message so callers can tell a rate limit
+ * (retry) from a bad token (stop).
  */
 
 export const GRAPH_VERSION = 'v26.0'
@@ -62,18 +64,36 @@ export class MetaApiError extends Error {
   }
 }
 
-/** Scheduled post came back from Meta with a different publish time. */
+/**
+ * Scheduled post came back from Meta with a different publish time. `deleted`
+ * says whether the best-effort cleanup removed it; when false the caller must
+ * keep `postId` so the orphan can still be deleted from Meta later.
+ */
 export class MetaScheduleMismatchError extends Error {
   constructor(
     readonly postId: string,
     readonly expected: number,
-    readonly actual: number | null
+    readonly actual: number | null,
+    readonly deleted: boolean = false
   ) {
     super(
-      `Meta stored scheduled_publish_time ${actual ?? 'null'} for post ${postId}, expected ${expected}`
+      `Meta stored scheduled_publish_time ${actual ?? 'null'} for post ${postId}, expected ${expected}${deleted ? '' : ' (and it could not be removed; delete it from Planner)'}`
     )
     this.name = 'MetaScheduleMismatchError'
   }
+}
+
+/**
+ * "This object is gone" — a deleted post/video. Meta answers (#100) with
+ * error_subcode 33 ("Unsupported get request. Object with ID ... does not
+ * exist, cannot be loaded due to missing permissions, ...") or (#803). A bare
+ * (#100) is Meta's generic invalid-parameter code (unknown field, bad
+ * scheduled_publish_time, ...) and must NOT be read as "deleted".
+ */
+export function isMetaObjectMissing(err: unknown): boolean {
+  if (!(err instanceof MetaApiError)) return false
+  if (err.httpStatus === 404 || err.code === 803) return true
+  return err.code === 100 && (err.subcode === 33 || /does not exist/i.test(err.message))
 }
 
 // Meta error codes that mean "try again later", not "this post is wrong".
@@ -118,8 +138,9 @@ async function parseBody(res: Response): Promise<unknown> {
 }
 
 /**
- * One Graph call. The token rides in the form body for POST/DELETE and the
- * query for GET; the URL is never included in thrown errors.
+ * One Graph call. The token rides ONLY in the Authorization header (Graph
+ * accepts Bearer for page, user and app tokens), so neither the URL nor the
+ * body ever carries it; the URL is never included in thrown errors.
  */
 export async function graph<T = Record<string, unknown>>(
   method: 'GET' | 'POST' | 'DELETE',
@@ -128,15 +149,13 @@ export async function graph<T = Record<string, unknown>>(
   params: Params = {}
 ): Promise<T> {
   const url = new URL(`${GRAPH_BASE}/${path.replace(/^\//, '')}`)
-  const init: RequestInit = { method, headers: {} }
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+  const init: RequestInit = { method, headers }
   if (method === 'GET') {
     for (const [k, v] of encode(params)) url.searchParams.set(k, v)
-    url.searchParams.set('access_token', token)
   } else {
-    const body = encode(params)
-    body.set('access_token', token)
-    init.body = body.toString()
-    init.headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
+    init.body = encode(params).toString()
+    headers['Content-Type'] = 'application/x-www-form-urlencoded'
   }
 
   const res = await fetch(url.toString(), init)
@@ -242,7 +261,14 @@ export async function fbSchedulePhotoPost(input: {
       scheduled_publish_time: when,
     })
     photoIds.push(res.id)
-    postId = res.post_id ?? res.id
+    if (!res.post_id) {
+      // Without post_id we cannot read the Page Post back (a Photo node has no
+      // is_published / scheduled_publish_time), so a mismatch check is
+      // impossible. Remove the photo rather than leave an unverifiable post.
+      await bestEffortDelete(token, res.id)
+      throw new MetaApiError(200, { message: 'Facebook did not return a post id for the scheduled photo', code: 100 }, 'no post_id')
+    }
+    postId = res.post_id
   } else {
     for (const url of imageUrls) {
       // temporary=true is required for photos that go into a scheduled post.
@@ -262,17 +288,49 @@ export async function fbSchedulePhotoPost(input: {
     postId = feed.id
   }
 
-  const stored = await fbGetPost({ token, postId })
-  const actual = stored.scheduledPublishTime
-  if (actual == null || Math.abs(actual - when) > SCHEDULE_TOLERANCE_SECONDS) {
-    try {
-      await fbDeletePost({ token, postId })
-    } catch {
-      // Leave it to the mismatch error; the caller surfaces the post id.
-    }
-    throw new MetaScheduleMismatchError(postId, when, actual)
-  }
+  const actual = await verifyScheduledTime({ token, objectId: postId, kind: 'post', expected: when })
   return { postId, photoIds, scheduledPublishTime: actual }
+}
+
+/**
+ * Read a just-scheduled object back and confirm Meta stored our time.
+ *   - stored time within tolerance → return it
+ *   - confirmed mismatch → best-effort delete, throw MetaScheduleMismatchError
+ *     (carrying whether the delete worked, so the caller can keep the id)
+ *   - transient read-back failure (rate limit, 5xx, network) → the create
+ *     call already carried scheduled_publish_time, so return the expected
+ *     time unverified rather than delete a post that is probably right
+ *   - any other read-back failure → best-effort delete, rethrow
+ */
+async function verifyScheduledTime(input: {
+  token: string
+  objectId: string
+  kind: 'post' | 'video'
+  expected: number
+}): Promise<number> {
+  const { token, objectId, kind, expected } = input
+  let actual: number | null
+  try {
+    actual = (await fbGetPost({ token, postId: objectId, kind })).scheduledPublishTime
+  } catch (err) {
+    if (isTransientMetaError(err)) return expected
+    await bestEffortDelete(token, objectId)
+    throw err
+  }
+  if (actual == null || Math.abs(actual - expected) > SCHEDULE_TOLERANCE_SECONDS) {
+    const deleted = await bestEffortDelete(token, objectId)
+    throw new MetaScheduleMismatchError(objectId, expected, actual, deleted)
+  }
+  return actual
+}
+
+async function bestEffortDelete(token: string, objectId: string): Promise<boolean> {
+  try {
+    await fbDeletePost({ token, postId: objectId })
+    return true
+  } catch (err) {
+    return isMetaObjectMissing(err)
+  }
 }
 
 function attachedMedia(photoIds: string[]): Params {
@@ -285,7 +343,9 @@ function attachedMedia(photoIds: string[]): Params {
 
 /**
  * Publish (or schedule) a video on the Page from a public URL. Meta pulls
- * the file itself (file_url); no transcoding on our side in v1.
+ * the file itself (file_url); no transcoding on our side in v1. The id
+ * returned is a VIDEO node id (read it back with kind: 'video'). A scheduled
+ * video is read back like a scheduled photo post and removed on a mismatch.
  */
 export async function fbPublishVideo(input: {
   token: string
@@ -301,7 +361,14 @@ export async function fbPublishVideo(input: {
     params.scheduled_publish_time = toUnixSeconds(scheduledAt)
   }
   const res = await graph<{ id: string }>('POST', `${pageId}/videos`, token, params)
-  return { videoId: res.id, scheduledPublishTime: scheduledAt ? toUnixSeconds(scheduledAt) : null }
+  if (!scheduledAt) return { videoId: res.id, scheduledPublishTime: null }
+  const actual = await verifyScheduledTime({
+    token,
+    objectId: res.id,
+    kind: 'video',
+    expected: toUnixSeconds(scheduledAt),
+  })
+  return { videoId: res.id, scheduledPublishTime: actual }
 }
 
 export interface FbPostState {
@@ -311,20 +378,35 @@ export interface FbPostState {
   permalinkUrl: string | null
 }
 
-/** Read a Page Post's publish state (used for the schedule read-back and the cron's went-live check). */
-export async function fbGetPost(input: { token: string; postId: string }): Promise<FbPostState> {
+/** What node type an id names, so the right field set is requested. */
+export type FbObjectKind = 'post' | 'video'
+
+/**
+ * Read a Page Post's (or Video's) publish state — the schedule read-back and
+ * the cron's went-live check. A Page Post exposes `is_published`; a Video
+ * node exposes `published` instead and answers (#100) "nonexisting field" if
+ * asked for is_published, so the field set is chosen by `kind`.
+ */
+export async function fbGetPost(input: {
+  token: string
+  postId: string
+  kind?: FbObjectKind
+}): Promise<FbPostState> {
+  const kind = input.kind ?? 'post'
+  const publishedField = kind === 'video' ? 'published' : 'is_published'
   const res = await graph<{
     id: string
     is_published?: boolean
+    published?: boolean
     scheduled_publish_time?: number | string
     permalink_url?: string
   }>('GET', input.postId, input.token, {
-    fields: 'id,is_published,scheduled_publish_time,permalink_url',
+    fields: `id,${publishedField},scheduled_publish_time,permalink_url`,
   })
   const spt = res.scheduled_publish_time
   return {
     id: res.id,
-    isPublished: res.is_published ?? null,
+    isPublished: (kind === 'video' ? res.published : res.is_published) ?? null,
     scheduledPublishTime:
       spt == null ? null : typeof spt === 'number' ? spt : normaliseTimestamp(spt),
     permalinkUrl: res.permalink_url ?? null,
@@ -431,11 +513,15 @@ export async function igGetContainerStatus(input: {
   }
 }
 
+export const IG_POLL_MAX_INTERVAL_MS = 60_000
+
 /**
  * Poll a container until FINISHED. Meta suggests once a minute for up to five
- * minutes; images usually finish in seconds, so we poll faster and cap the
- * wait so the cron stays inside its maxDuration. Throws MetaApiError with
- * code 9007 (transient) on timeout so the row is retried, not failed.
+ * minutes; images usually finish in seconds, so the first poll is fast and
+ * the interval doubles toward the one-minute guidance (5→10→20→40→60 s).
+ * The wait is capped so the caller stays inside its function limit and
+ * throws MetaApiError code 9007 (transient) on timeout so the row is retried
+ * (resuming this same container), not failed.
  */
 export async function igWaitForContainer(input: {
   token: string
@@ -452,6 +538,7 @@ export async function igWaitForContainer(input: {
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   } = input
   const started = Date.now()
+  let interval = intervalMs
   let last: IgContainerStatus = { statusCode: 'IN_PROGRESS', status: null }
   for (;;) {
     last = await igGetContainerStatus({ token, containerId })
@@ -467,14 +554,17 @@ export async function igWaitForContainer(input: {
         'Instagram container failed'
       )
     }
-    if (Date.now() - started >= maxWaitMs) {
+    const elapsed = Date.now() - started
+    if (elapsed >= maxWaitMs) {
       throw new MetaApiError(
         200,
         { message: 'Instagram media is still processing; will retry', code: 9007, error_subcode: 2207027 },
         'Instagram container not ready'
       )
     }
-    await sleep(intervalMs)
+    // Never sleep past the deadline: the next poll is the last one.
+    await sleep(Math.min(interval, Math.max(maxWaitMs - elapsed, 0)))
+    interval = Math.min(interval * 2, IG_POLL_MAX_INTERVAL_MS)
   }
 }
 

@@ -11,10 +11,13 @@
  *   - EXIF orientation baked in (sharp .rotate() with no args = autoOrient)
  *   - transparency flattened onto white, padded (never cropped) to the
  *     nearest legal ratio with a white background, width capped at 1440
- *   - quality 85, written to client-assets/<orgId>/derived/<sha1(path)>.jpg
+ *   - carousels: every item padded to the FIRST item's ratio, because
+ *     Instagram crops all carousel children to the first image's ratio
+ *   - quality 85, written to client-assets/<orgId>/derived/<sha1(path[+ratio])>.jpg
  *
- * Idempotent: the derived path is a hash of the source path, and an existing
- * object is reused. Videos pass through untouched in v1 (Meta transcodes).
+ * Idempotent: the derived path is a hash of the source path (plus the target
+ * ratio when one is forced), and an existing object is reused. Videos pass
+ * through untouched in v1 (Meta transcodes).
  */
 
 import { createHash } from 'crypto'
@@ -34,9 +37,15 @@ export function publicUrl(path: string): string {
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`
 }
 
-export function derivedPath(sourcePath: string): string {
+/**
+ * Derived object path. A forced target ratio is part of the hash so a
+ * carousel-padded render never collides with the free-ratio render of the
+ * same source.
+ */
+export function derivedPath(sourcePath: string, targetRatio?: number): string {
   const orgId = sourcePath.split('/')[0]
-  const hash = createHash('sha1').update(sourcePath).digest('hex')
+  const key = targetRatio == null ? sourcePath : `${sourcePath}@${targetRatio.toFixed(4)}`
+  const hash = createHash('sha1').update(key).digest('hex')
   return `${orgId}/derived/${hash}.jpg`
 }
 
@@ -50,15 +59,19 @@ export interface Padding {
 }
 
 /**
- * Canvas that brings width×height inside [MIN_RATIO, MAX_RATIO] by adding
- * equal white margins. Pure; unit-tested. Returns zero padding when the
- * image is already legal.
+ * Canvas that brings width×height to a legal ratio by adding equal white
+ * margins. With no target: the nearest edge of [MIN_RATIO, MAX_RATIO] (zero
+ * padding when already legal). With a target ratio: pad out to exactly that
+ * ratio (used so every carousel item matches the first). Pure; unit-tested.
  */
-export function paddingFor(width: number, height: number): Padding {
+export function paddingFor(width: number, height: number, targetRatio?: number): Padding {
   const ratio = width / height
   let targetW = width
   let targetH = height
-  if (ratio < MIN_RATIO) {
+  if (targetRatio != null) {
+    if (ratio < targetRatio - 1e-6) targetW = Math.ceil(height * targetRatio)
+    else if (ratio > targetRatio + 1e-6) targetH = Math.ceil(width / targetRatio)
+  } else if (ratio < MIN_RATIO) {
     targetW = Math.ceil(height * MIN_RATIO)
   } else if (ratio > MAX_RATIO) {
     targetH = Math.ceil(width / MAX_RATIO)
@@ -90,22 +103,29 @@ async function decodeToSharp(bytes: Buffer, contentType: string): Promise<sharp.
   return sharp(bytes).rotate()
 }
 
+export interface Rendered {
+  buffer: Buffer
+  width: number
+  height: number
+}
+
 /**
- * Convert a source image to a Meta-ready JPEG buffer.
- * Exported so the pipeline can be tested on a generated image without storage.
+ * Render an already-decoded sharp pipeline to a Meta-ready JPEG. Two stages:
+ * resize + flatten to RAW pixels (lossless, and the only output a raw-input
+ * pipeline such as the HEIC path can be re-fed to sharp), then pad + encode.
+ * The intermediate is re-wrapped WITH its raw descriptor; a bare
+ * `sharp(data)` on raw pixels throws "Input buffer contains unsupported
+ * image format".
  */
-export async function renderForMeta(
-  bytes: Buffer,
-  contentType: string
-): Promise<{ buffer: Buffer; width: number; height: number }> {
-  const base = await decodeToSharp(bytes, contentType)
+export async function renderSharpForMeta(base: sharp.Sharp, targetRatio?: number): Promise<Rendered> {
   const { data, info } = await base
     .resize({ width: MAX_WIDTH, withoutEnlargement: true })
     .flatten({ background: WHITE })
+    .raw()
     .toBuffer({ resolveWithObject: true })
 
-  const pad = paddingFor(info.width, info.height)
-  let out = sharp(data)
+  const pad = paddingFor(info.width, info.height, targetRatio)
+  let out = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })
   if (pad.left || pad.top || pad.right || pad.bottom) {
     out = out.extend({
       top: pad.top,
@@ -117,6 +137,14 @@ export async function renderForMeta(
   }
   const buffer = await out.jpeg({ quality: JPEG_QUALITY }).toBuffer()
   return { buffer, width: pad.width, height: pad.height }
+}
+
+/**
+ * Convert a source image (bytes + content type) to a Meta-ready JPEG buffer.
+ * Exported so the pipeline can be tested on a generated image without storage.
+ */
+export async function renderForMeta(bytes: Buffer, contentType: string, targetRatio?: number): Promise<Rendered> {
+  return renderSharpForMeta(await decodeToSharp(bytes, contentType), targetRatio)
 }
 
 export interface PreparedImage {
@@ -139,8 +167,12 @@ async function derivedExists(path: string): Promise<boolean> {
  * Download the original from the public bucket, render it, upload the
  * derived JPEG (skipped when it already exists), return its public URL.
  */
-export async function prepareImageForMeta(path: string, contentType: string): Promise<PreparedImage> {
-  const target = derivedPath(path)
+export async function prepareImageForMeta(
+  path: string,
+  contentType: string,
+  targetRatio?: number
+): Promise<PreparedImage> {
+  const target = derivedPath(path, targetRatio)
   const url = publicUrl(target)
 
   if (await derivedExists(target)) {
@@ -149,7 +181,7 @@ export async function prepareImageForMeta(path: string, contentType: string): Pr
   }
 
   const source = await download(publicUrl(path))
-  const rendered = await renderForMeta(source, contentType)
+  const rendered = await renderForMeta(source, contentType, targetRatio)
 
   const admin = createAdminClient()
   const { error } = await admin.storage
@@ -170,13 +202,24 @@ async function download(url: string): Promise<Buffer> {
 /**
  * Everything Meta needs to fetch for a post: derived JPEGs for images, the
  * original public URL for a video. Order preserved (carousel order).
+ *
+ * `uniformRatio` (carousels): the first image is rendered to its own legal
+ * ratio, and every following image is padded to exactly that ratio, so
+ * Instagram's "crop every child to the first item" never cuts real content.
  */
-export async function prepareMediaForMeta(media: MediaItem[]): Promise<DerivedMediaItem[]> {
+export async function prepareMediaForMeta(
+  media: MediaItem[],
+  options: { uniformRatio?: boolean } = {}
+): Promise<DerivedMediaItem[]> {
   const out: DerivedMediaItem[] = []
+  let targetRatio: number | undefined
   for (const item of media) {
     if (isImageType(item.content_type)) {
-      const prepared = await prepareImageForMeta(item.path, item.content_type)
+      const prepared = await prepareImageForMeta(item.path, item.content_type, targetRatio)
       out.push({ path: prepared.derivedPath, public_url: prepared.publicUrl })
+      if (options.uniformRatio && targetRatio == null && prepared.width > 0 && prepared.height > 0) {
+        targetRatio = prepared.width / prepared.height
+      }
     } else {
       out.push({ path: item.path, public_url: publicUrl(item.path) })
     }

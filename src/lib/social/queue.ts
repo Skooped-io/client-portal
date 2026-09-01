@@ -80,18 +80,32 @@ export const CAPTION_LIMITS: Record<Platform, number> = {
   instagram: 2200,
 }
 export const IG_MAX_HASHTAGS = 30
+export const IG_MAX_MENTIONS = 20
 export const CAROUSEL_MIN = 2
 export const CAROUSEL_MAX = 10
 
-// Facebook native scheduling window: 10 minutes to 30 days from the API call
-// (the /feed reference says 75 days but the Pages guide and real-world (#100)
-// errors say 30). Anything closer than 10 minutes publishes immediately;
-// anything further than 30 days falls back to our cron.
-export const PUBLISH_NOW_WINDOW_MS = 10 * 60 * 1000
-export const FB_NATIVE_MAX_MS = 30 * 24 * 60 * 60 * 1000
+// Scheduling windows, measured from the moment the Meta call is made.
+//   publish-now  scheduled_at missing, past, or within 2 minutes: post now.
+//   cron         2–20 minutes out (either platform), Instagram at any future
+//                time, Facebook past the native ceiling: our 5-minute cron
+//                honours the chosen time.
+//   fb-native    Facebook, 20 minutes – 29 days out: Meta holds the post.
+// Meta documents the native window as 10 minutes – 30 days, but the Help
+// Center and real (#100) "scheduled publish time is invalid" errors put the
+// effective floor at ~20 minutes and the ceiling at 29 days, so both edges
+// carry a margin. Media prep can take tens of seconds, so callers compute the
+// mode AFTER preparing media, with a fresh `now`.
+export const PUBLISH_NOW_WINDOW_MS = 2 * 60 * 1000
+export const FB_NATIVE_MIN_MS = 20 * 60 * 1000
+export const FB_NATIVE_MAX_MS = 29 * 24 * 60 * 60 * 1000
 
 // Transient Meta failures retry this many times before the row parks in 'failed'.
 export const MAX_ATTEMPTS = 3
+
+// A row still 'publishing' this long after its last write was claimed by a
+// function that has since been killed (route cap 120 s, cron cap 300 s). The
+// cron sweeps it to 'failed' so Retry appears on /m.
+export const STALE_PUBLISHING_MS = 15 * 60 * 1000
 
 export const BUSINESS_TIMEZONE = 'America/Chicago'
 
@@ -238,6 +252,12 @@ export function countHashtags(text: string): number {
   return matches ? matches.length : 0
 }
 
+/** Word-start @mentions (the IG caption parameter allows 20 @ tags). */
+export function countMentions(text: string): number {
+  const matches = text.match(/(^|\s)@[\p{L}\p{N}_.]+/gu)
+  return matches ? matches.length : 0
+}
+
 /**
  * Caption rules per platform. Returns the cleaned caption (control chars
  * other than newlines/tabs stripped, trimmed). `required` is true at approve
@@ -270,14 +290,26 @@ export function validateCaption(
     if (tags > IG_MAX_HASHTAGS) {
       return { ok: false, error: `Instagram allows ${IG_MAX_HASHTAGS} hashtags; this caption has ${tags}` }
     }
+    const mentions = countMentions(cleaned)
+    if (mentions > IG_MAX_MENTIONS) {
+      return { ok: false, error: `Instagram allows ${IG_MAX_MENTIONS} @mentions; this caption has ${mentions}` }
+    }
   }
   return { ok: true, value: cleaned }
 }
 
-/** Parse a scheduled_at from the client (ISO string or null). */
+/**
+ * Parse a scheduled_at from the client (ISO string with an explicit offset,
+ * or null). An offset-less value like `2026-09-02T09:00` (what a raw
+ * datetime-local input emits) would be read as UTC on the server and shift a
+ * 9:00 Central post to 4:00, so it is refused at the boundary.
+ */
 export function parseScheduledAt(raw: unknown): Result<Date | null> {
   if (raw == null || raw === '') return { ok: true, value: null }
   if (typeof raw !== 'string') return { ok: false, error: 'Invalid schedule time' }
+  if (!/(Z|[+-]\d{2}:?\d{2})$/.test(raw)) {
+    return { ok: false, error: 'Schedule time must include a timezone offset' }
+  }
   const t = Date.parse(raw)
   if (Number.isNaN(t)) return { ok: false, error: 'Invalid schedule time' }
   return { ok: true, value: new Date(t) }
@@ -285,15 +317,16 @@ export function parseScheduledAt(raw: unknown): Result<Date | null> {
 
 /**
  * How an approved post reaches the platform.
- *   publish-now  scheduled_at missing, past, or under 10 minutes out
- *   fb-native    Facebook, 10 min – 30 days out: Meta holds the scheduled post
- *   cron         Instagram at any future time; Facebook past the 30-day window
+ *   publish-now  scheduled_at missing, past, or under 2 minutes out
+ *   fb-native    Facebook, 20 min – 29 days out: Meta holds the scheduled post
+ *   cron         everything else: 2–20 min out on either platform, Instagram
+ *                at any future time, Facebook past the 29-day ceiling
  */
 export function scheduleMode(scheduledAt: Date | null, now: Date, platform: Platform): ScheduleMode {
   if (!scheduledAt) return 'publish-now'
   const delta = scheduledAt.getTime() - now.getTime()
   if (delta < PUBLISH_NOW_WINDOW_MS) return 'publish-now'
-  if (platform === 'facebook' && delta <= FB_NATIVE_MAX_MS) return 'fb-native'
+  if (platform === 'facebook' && delta >= FB_NATIVE_MIN_MS && delta <= FB_NATIVE_MAX_MS) return 'fb-native'
   return 'cron'
 }
 
@@ -319,7 +352,10 @@ export type PostEvent =
 const TRANSITIONS: Record<PostEvent, Partial<Record<PostStatus, PostStatus>>> = {
   update: { draft: 'draft', failed: 'draft' },
   approve: { draft: 'approved', failed: 'approved' },
-  fb_scheduled: { approved: 'scheduled' },
+  // The approve route claims into 'publishing' before the Meta scheduling
+  // call, so a crash mid-call leaves a visible 'publishing' row rather than
+  // an 'approved' one the cron would publish a second time.
+  fb_scheduled: { approved: 'scheduled', publishing: 'scheduled' },
   unapprove: { approved: 'draft', scheduled: 'draft' },
   claim: { approved: 'publishing' },
   published: { publishing: 'published', scheduled: 'published' },

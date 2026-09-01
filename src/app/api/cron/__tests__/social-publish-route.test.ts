@@ -8,6 +8,11 @@ vi.mock('@/lib/social/service', () => ({
   createSupabaseStore: () => ({}),
   runSocialPublish: run,
 }))
+// The real logger's flush() reaches for Axiom; never from a test.
+vi.mock('@/lib/logger', () => ({
+  ops: { info: vi.fn(), error: vi.fn() },
+  flush: vi.fn().mockResolvedValue(undefined),
+}))
 
 function get(auth?: string) {
   return new NextRequest('http://localhost/api/cron/social-publish', {
@@ -33,13 +38,22 @@ describe('GET /api/cron/social-publish', () => {
   })
 
   it('runs one pass and reports counts', async () => {
-    run.mockResolvedValue({ published: ['a'], retried: [], failed: ['b'], skipped: [], fbWentLive: ['c'], fbMissing: [] })
+    run.mockResolvedValue({
+      published: ['a'],
+      retried: [],
+      failed: ['b'],
+      skipped: [],
+      stale: ['s'],
+      fbWentLive: ['c'],
+      fbMissing: [],
+    })
     const { GET } = await import('../social-publish/route')
     const res = await GET(get('Bearer cron-secret'))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.published).toBe(1)
     expect(body.failed).toBe(1)
+    expect(body.stale).toBe(1)
     expect(body.fbWentLive).toBe(1)
     expect(run).toHaveBeenCalledTimes(1)
   })
