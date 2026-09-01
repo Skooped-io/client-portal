@@ -2,6 +2,10 @@ import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 
 const nextConfig: NextConfig = {
+  // Native/WASM media libs for the social publisher: load from node_modules at
+  // runtime (file-traced) instead of being bundled. sharp is already on
+  // Next's default list; libheif-js is a 6MB Emscripten bundle.
+  serverExternalPackages: ["heic-decode", "libheif-js"],
   experimental: {
     serverActions: {
       allowedOrigins: [
