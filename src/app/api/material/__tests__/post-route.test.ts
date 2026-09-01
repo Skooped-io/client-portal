@@ -328,6 +328,56 @@ describe('POST /api/material/post', () => {
     expect(writes[1].platform_post_id).toBe('page1_orphan')
   })
 
+  it('update keeps the orphan id on a failed row; approve of the resulting draft removes the orphan at Meta before scheduling', async () => {
+    const { POST } = await import('../post/route')
+
+    // 1. Edit the failed row: it becomes a draft, the orphan id is NOT dropped.
+    seed(draft({ status: 'failed', platform_post_id: 'page1_orphan', last_error: 'mismatch' }))
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'update', caption: 'Edited' }))).status).toBe(200)
+    const edit = statusWrites().at(-1)!
+    expect(edit.status).toBe('draft')
+    expect(edit).not.toHaveProperty('platform_post_id')
+    expect(meta.fbGetPost).not.toHaveBeenCalled()
+
+    // 2. Approve that draft: the orphan is checked and deleted first, then one schedule call.
+    tables.ops.length = 0
+    seed(draft({ status: 'draft', platform_post_id: 'page1_orphan', caption: 'Edited' }))
+    meta.fbGetPost.mockResolvedValue({ id: 'page1_orphan', isPublished: false, scheduledPublishTime: 1, permalinkUrl: null })
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Edited', scheduled_at: inTwoHours() }))
+    expect(res.status).toBe(200)
+    expect(meta.fbDeletePost).toHaveBeenCalledTimes(1)
+    expect(meta.fbDeletePost.mock.calls[0][0].postId).toBe('page1_orphan')
+    expect(meta.scheduleOnFacebook).toHaveBeenCalledTimes(1)
+    const writes = statusWrites()
+    expect(writes[0].status).toBe('publishing')
+    expect(writes[0].platform_post_id).toBeNull()
+    expect(writes[1].status).toBe('scheduled')
+    expect(writes[1].platform_post_id).toBe('page1_9')
+
+    // 3. ...and if that orphan already went live, approve is refused rather than scheduling a second copy.
+    meta.fbDeletePost.mockClear()
+    meta.scheduleOnFacebook.mockClear()
+    seed(draft({ status: 'draft', platform_post_id: 'page1_live', caption: 'Edited' }))
+    meta.fbGetPost.mockResolvedValue({ id: 'page1_live', isPublished: true, scheduledPublishTime: null, permalinkUrl: null })
+    const live = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Edited', scheduled_at: inTwoHours() }))
+    expect(live.status).toBe(409)
+    expect((await live.json()).error).toMatch(/already live/)
+    expect(meta.fbDeletePost).not.toHaveBeenCalled()
+    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
+  })
+
+  it('delete of a draft that still carries an orphan id removes the orphan at Meta', async () => {
+    const { POST } = await import('../post/route')
+    seed(draft({ status: 'draft', platform_post_id: 'page1_orphan' }))
+    meta.fbGetPost.mockResolvedValue({ id: 'page1_orphan', isPublished: false, scheduledPublishTime: 1, permalinkUrl: null })
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
+    expect(meta.fbDeletePost).toHaveBeenCalledTimes(1)
+    expect(meta.fbDeletePost.mock.calls[0][0].postId).toBe('page1_orphan')
+    const last = statusWrites().at(-1)!
+    expect(last.status).toBe('cancelled')
+    expect(last.platform_post_id).toBeNull()
+  })
+
   it('unapprove of a held post deletes it at Meta first; refused once Meta already published it', async () => {
     const { POST } = await import('../post/route')
 

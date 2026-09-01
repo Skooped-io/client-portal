@@ -191,9 +191,12 @@ export async function POST(request: NextRequest) {
         const account = await store.loadAccount(org.id, post.platform)
         if (!account) return refuse(new MissingAccountError(post.platform).message, 409)
 
-        // Retry of a failed schedule that left an orphan at Meta: clear it
-        // first so the retry cannot produce a duplicate.
-        if (post.status === 'failed' && post.platform_post_id) {
+        // A failed schedule that left an orphan at Meta (a mismatch whose
+        // cleanup delete did not go through) keeps its id on the row, and
+        // 'update' carries that id along when it turns the failed row back
+        // into a draft. Whatever the status, clear the orphan first so this
+        // approve cannot produce a duplicate held post.
+        if (post.platform_post_id) {
           const removed = await removeHeldFbObject(account)
           if (removed === 'live') {
             return refuse(`This post is already live on Facebook (${post.platform_post_id}). Delete this row instead of retrying`, 409)
@@ -259,7 +262,11 @@ export async function POST(request: NextRequest) {
         const next = transition(post, event)
         if (!next.ok) return refuse(next.error, 409)
 
-        if (post.platform === 'facebook' && post.platform_post_id && (post.status === 'scheduled' || post.status === 'failed')) {
+        // Any Facebook object this row still points at — the held post of a
+        // 'scheduled' row, or the orphan a failed schedule left behind (which
+        // 'update' carries into a draft) — is removed at Meta before the id
+        // is dropped from the row.
+        if (post.platform === 'facebook' && post.platform_post_id) {
           const account = await store.loadAccount(org.id, post.platform)
           if (!account) return refuse(new MissingAccountError(post.platform).message, 409)
           const removed = await removeHeldFbObject(account)

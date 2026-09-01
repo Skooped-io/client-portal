@@ -477,7 +477,9 @@ export async function runSocialReconcile(deps: ReconcileDeps): Promise<Reconcile
       } else {
         // Rate limit, blip, field/permission problem: leave it scheduled
         // (still visible on /m) with the reason, check again next run.
-        await store.update(post.id, { last_error: errorMessage(err) })
+        // Compare-and-swap so the reason never lands on a row a user
+        // unapproved or deleted while the read-back was in flight.
+        await store.transitionFrom(post.id, 'scheduled', { last_error: errorMessage(err) })
         result.fbHeld.push(post.id)
       }
     }

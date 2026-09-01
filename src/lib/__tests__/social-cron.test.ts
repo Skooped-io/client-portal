@@ -135,6 +135,49 @@ describe('runSocialReconcile', () => {
     }
   })
 
+  it('with the REAL Meta transport (no injected reader): every call is a GET — zero POST/DELETE, even when a held post went live', async () => {
+    const calls: Array<{ method: string; path: string }> = []
+    const fetchSpy = vi.fn(async (input: string, init?: RequestInit) => {
+      calls.push({ method: init?.method ?? 'GET', path: new URL(input).pathname })
+      return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'page1_77', is_published: true, scheduled_publish_time: 1 }) }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    try {
+      const { store, rows, stamped } = memoryStore([
+        post(),
+        post({ id: 'draft', status: 'draft', platform_post_id: null }),
+        post({ id: 'legacy-approved', status: 'approved', platform_post_id: null }),
+        post({ id: 'ig-approved', status: 'approved', platform: 'instagram', platform_post_id: null }),
+        post({ id: 'failed', status: 'failed' }),
+        post({ id: 'fresh-claim', status: 'publishing', platform_post_id: null, updated_at: new Date(NOW.getTime() - 60_000).toISOString() }),
+      ])
+      const result = await runSocialReconcile({ store, now: NOW })
+      expect(result.fbWentLive).toEqual(['p1'])
+      expect(rows[0].status).toBe('published')
+      expect(stamped).toHaveLength(1)
+      // Exactly one Graph call, and it is a read of the held post's own node.
+      expect(calls).toEqual([{ method: 'GET', path: '/v26.0/page1_77' }])
+      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+      expect(rows.slice(1).map((r) => r.status)).toEqual(['draft', 'approved', 'approved', 'failed', 'publishing'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a read-back blip never writes its reason onto a row a user moved meanwhile (compare-and-swap)', async () => {
+    const { store, rows } = memoryStore([post()])
+    const fbPostState = vi.fn(async () => {
+      // Joseph unapproves while the Meta read is in flight.
+      rows[0].status = 'draft'
+      rows[0].platform_post_id = null
+      throw new MetaApiError(500, null, 'boom')
+    })
+    const result = await runSocialReconcile({ store, now: NOW, fbPostState })
+    expect(result.fbHeld).toEqual(['p1'])
+    expect(rows[0].status).toBe('draft')
+    expect(rows[0].last_error).toBeNull()
+  })
+
   it('a scheduled Facebook VIDEO is read back as a video node', async () => {
     const { store, rows } = memoryStore([
       post({
