@@ -64,6 +64,18 @@ describe('POST /api/material/queue', () => {
     expect(tables.calls).toEqual([])
   })
 
+  it("is Facebook-only: ['instagram'] and ['facebook','instagram'] are 400 with the by-hand hint, before any lookup", async () => {
+    const { POST } = await import('../queue/route')
+    for (const platforms of [['instagram'], ['facebook', 'instagram'], ['tiktok']]) {
+      const res = await POST(post({ token: TOKEN, paths: ['org1/captures/j/1.jpg'], platforms }))
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toMatch(/Only Facebook/)
+      expect(body.error).toMatch(/Business Suite/)
+    }
+    expect(tables.calls).toEqual([])
+  })
+
   it('404s on an unknown token', async () => {
     tables.current = { organizations: { data: null } }
     const { POST } = await import('../queue/route')
@@ -100,11 +112,8 @@ describe('POST /api/material/queue', () => {
     expect(body.error).toMatch(/Mixing video and photos/)
   })
 
-  it('creates one draft per platform and returns the rows', async () => {
-    const rows = [
-      { id: 'p1', platform: 'facebook', status: 'draft' },
-      { id: 'p2', platform: 'instagram', status: 'draft' },
-    ]
+  it('creates one Facebook draft and returns the row', async () => {
+    const rows = [{ id: 'p1', platform: 'facebook', status: 'draft' }]
     tables.current = {
       organizations: { data: { id: 'org1', name: 'Gunn' } },
       capture_uploads: {
@@ -118,7 +127,7 @@ describe('POST /api/material/queue', () => {
     }
     const { POST } = await import('../queue/route')
     const res = await POST(
-      post({ token: TOKEN, paths: ['org1/captures/j/2.jpg', 'org1/captures/j/1.heic'], platforms: ['facebook', 'instagram'] })
+      post({ token: TOKEN, paths: ['org1/captures/j/2.jpg', 'org1/captures/j/1.heic'], platforms: ['facebook'] })
     )
     expect(res.status).toBe(200)
     const body = await res.json()

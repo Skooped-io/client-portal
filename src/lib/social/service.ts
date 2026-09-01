@@ -1,18 +1,21 @@
 /**
  * Social publisher side effects: the store (Supabase), the account/token
- * lookup, and the per-platform publish flows. The routes and the cron are
- * thin wrappers over these; the decision logic stays in queue.ts.
+ * lookup, the Facebook scheduling call, and the cron's reconciliation pass.
+ * The routes and the cron are thin wrappers over these; the decision logic
+ * stays in queue.ts.
  *
- * The store is an interface so the cron runner (runSocialPublish) can be
- * tested against an in-memory implementation — the double-publish guard in
- * particular has to be provable without a database.
+ * Product rule (Joseph, 2026-09-01): the only Meta write that creates content
+ * is scheduleOnFacebook (a held, scheduled post). There is no publish-now and
+ * no Instagram path. The cron never creates or publishes anything; it only
+ * reads held posts back and reflects what Meta did.
+ *
+ * The store is an interface so the reconciliation runner can be tested
+ * against an in-memory implementation.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/crypto'
+import { decrypt, encrypt } from '@/lib/crypto'
 import {
-  failureOutcome,
-  isDue,
   STALE_PUBLISHING_MS,
   transition,
   type DerivedMediaItem,
@@ -23,17 +26,9 @@ import {
 } from './queue'
 import {
   fbGetPost,
-  fbPublishPhotoPost,
-  fbPublishVideo,
   fbSchedulePhotoPost,
-  igCreateCarousel,
-  igCreateImageContainer,
-  igCreateReel,
-  igGetContainerStatus,
-  igPublish,
-  igWaitForContainer,
+  fbScheduleVideo,
   isMetaObjectMissing,
-  isTransientMetaError,
   MetaApiError,
   type FbObjectKind,
 } from './meta'
@@ -50,10 +45,21 @@ export interface SocialAccount {
   token_expires_at: string | null
 }
 
+/** What the admin route returns and stores: never the token. */
+export interface SocialAccountSummary {
+  id: string
+  org_id: string
+  platform: Platform
+  external_id: string
+  page_id: string | null
+  display_name: string | null
+  token_expires_at: string | null
+}
+
 export class MissingAccountError extends Error {
   constructor(platform: Platform) {
     super(
-      `No ${platform === 'facebook' ? 'Facebook Page' : 'Instagram account'} connected for this client yet. Add one with: npm run social-account`
+      `No ${platform === 'facebook' ? 'Facebook Page' : 'Instagram account'} connected for this client yet. Connect one with POST /api/admin/social-account (or npm run social-account)`
     )
     this.name = 'MissingAccountError'
   }
@@ -76,12 +82,8 @@ export type PostPatch = Partial<
 >
 
 export interface SocialStore {
-  /** Approved rows whose scheduled_at has passed (or is null). */
-  listDue(now: Date, limit: number): Promise<SocialPost[]>
   /** Facebook rows Meta is holding whose time has passed: check if they went live. */
   listScheduledFacebook(before: Date, limit: number): Promise<SocialPost[]>
-  /** Compare-and-swap approved → publishing. False when another run got there first. */
-  claim(post: SocialPost): Promise<boolean>
   /** Unconditional write (id only). Use transitionFrom for any status change a user can race. */
   update(id: string, patch: PostPatch): Promise<void>
   /**
@@ -92,15 +94,15 @@ export interface SocialStore {
   transitionFrom(id: string, fromStatus: PostStatus | PostStatus[], patch: PostPatch): Promise<boolean>
   /**
    * Rows stuck in 'publishing' whose last write is older than `before`: the
-   * function that claimed them was killed. Park them in 'failed' (keeping
-   * ig_container_id so a retry can resume) and return their ids.
+   * approve request that claimed them was killed. Park them in 'failed' and
+   * return their ids.
    */
   failStale(before: Date): Promise<string[]>
   loadAccount(orgId: string, platform: Platform): Promise<SocialAccount | null>
   /**
    * capture_uploads.posted_at + post_ref for every media path (same columns
-   * /api/material/mark writes). post_ref is APPENDED so a file posted to both
-   * platforms keeps both references.
+   * /api/material/mark writes). post_ref is APPENDED so a file that was also
+   * marked by hand keeps both references.
    */
   stampPosted(orgId: string, paths: string[], postRef: string): Promise<void>
 }
@@ -108,7 +110,7 @@ export interface SocialStore {
 export const MIN_TOKEN_LENGTH = 16
 export const POST_REF_MAX = 120
 export const STALE_PUBLISHING_MESSAGE =
-  'Publish did not finish (the server run was cut off). Check Instagram/Facebook before retrying'
+  'Approve did not finish (the server run was cut off). Check Business Suite Planner for a scheduled post before retrying'
 
 /**
  * The material token (organizations.material_token) is the only credential
@@ -130,10 +132,12 @@ export async function resolveMaterialOrg(
 export const POST_COLUMNS =
   'id, org_id, platform, post_type, caption, media, derived_media, scheduled_at, approved_at, published_at, platform_post_id, ig_container_id, status, last_error, attempts, group_id, created_at, updated_at'
 
+export const ACCOUNT_SUMMARY_COLUMNS = 'id, org_id, platform, external_id, page_id, display_name, token_expires_at'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyClient = SupabaseClient<any, any, any>
 
-/** Append a reference to an existing post_ref ('fb:1 ig:2'), capped at the column width. */
+/** Append a reference to an existing post_ref ('fb:1 gbp'), capped at the column width. */
 export function appendPostRef(existing: string | null | undefined, postRef: string): string {
   const parts = (existing ?? '').split(/\s+/).filter(Boolean)
   if (!parts.includes(postRef)) parts.push(postRef)
@@ -142,18 +146,6 @@ export function appendPostRef(existing: string | null | undefined, postRef: stri
 
 export function createSupabaseStore(admin: AnyClient): SocialStore {
   return {
-    async listDue(now, limit) {
-      const { data, error } = await admin
-        .from('social_posts')
-        .select(POST_COLUMNS)
-        .eq('status', 'approved')
-        .or(`scheduled_at.is.null,scheduled_at.lte.${now.toISOString()}`)
-        .order('scheduled_at', { ascending: true, nullsFirst: true })
-        .limit(limit)
-      if (error) throw new Error(`listDue: ${error.message}`)
-      return ((data ?? []) as SocialPost[]).filter((p) => isDue(p, now))
-    },
-
     async listScheduledFacebook(before, limit) {
       const { data, error } = await admin
         .from('social_posts')
@@ -165,21 +157,6 @@ export function createSupabaseStore(admin: AnyClient): SocialStore {
         .limit(limit)
       if (error) throw new Error(`listScheduledFacebook: ${error.message}`)
       return (data ?? []) as SocialPost[]
-    },
-
-    async claim(post) {
-      const { data, error } = await admin
-        .from('social_posts')
-        .update({
-          status: 'publishing',
-          attempts: post.attempts + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', post.id)
-        .eq('status', 'approved')
-        .select('id')
-      if (error) throw new Error(`claim: ${error.message}`)
-      return Boolean(data && data.length > 0)
     },
 
     async update(id, patch) {
@@ -259,33 +236,71 @@ export function createSupabaseStore(admin: AnyClient): SocialStore {
   }
 }
 
-// ─── Publish flows ───────────────────────────────────────────────────────────
+// ─── Connected accounts (admin route) ────────────────────────────────────────
 
-export interface PublishInput {
+export interface UpsertAccountInput {
+  orgId: string
+  platform: Platform
+  externalId: string
+  pageId: string | null
+  displayName: string | null
+  /** Plaintext page token; encrypted here, never stored or logged as-is. */
+  accessToken: string
+  tokenExpiresAt: Date | null
+}
+
+/**
+ * Insert or replace the (org, platform) row. The token is encrypted with
+ * TOKEN_ENCRYPTION_KEY before it touches the query, and only the summary
+ * columns are read back.
+ */
+export async function upsertSocialAccount(admin: AnyClient, input: UpsertAccountInput): Promise<SocialAccountSummary> {
+  const { data, error } = await admin
+    .from('social_accounts')
+    .upsert(
+      {
+        org_id: input.orgId,
+        platform: input.platform,
+        external_id: input.externalId,
+        page_id: input.pageId,
+        display_name: input.displayName,
+        access_token_enc: encrypt(input.accessToken),
+        token_expires_at: input.tokenExpiresAt ? input.tokenExpiresAt.toISOString() : null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'org_id,platform' }
+    )
+    .select(ACCOUNT_SUMMARY_COLUMNS)
+    .single()
+  if (error) throw new Error(`upsertSocialAccount: ${error.message}`)
+  return data as SocialAccountSummary
+}
+
+/** Remove the (org, platform) row. True when a row was actually deleted. */
+export async function deleteSocialAccount(admin: AnyClient, orgId: string, platform: Platform): Promise<boolean> {
+  const { data, error } = await admin
+    .from('social_accounts')
+    .delete()
+    .eq('org_id', orgId)
+    .eq('platform', platform)
+    .select('id')
+  if (error) throw new Error(`deleteSocialAccount: ${error.message}`)
+  return Boolean(data && data.length > 0)
+}
+
+// ─── Scheduling ──────────────────────────────────────────────────────────────
+
+export interface ScheduleInput {
   post: SocialPost
   account: SocialAccount
   derived: DerivedMediaItem[]
-  /** Called as soon as an IG container exists so the id is persisted before the wait. */
-  onContainer?: (containerId: string) => Promise<void>
-  /**
-   * Epoch ms by which the publish must have returned (the caller's function
-   * limit minus headroom). Container waits are cut to fit; on the deadline
-   * the transient 9007 error is thrown so the row goes back to 'approved'
-   * and the next run RESUMES the persisted container instead of the
-   * function being killed mid-wait with the row stuck in 'publishing'.
-   */
-  deadline?: number
-  sleep?: (ms: number) => Promise<void>
+  scheduledAt: Date
 }
 
-export interface PublishResult {
+export interface ScheduleResult {
   platformPostId: string
   postRef: string
 }
-
-// Per-type caps on one container wait (Meta: reels can take minutes; images seconds).
-export const IG_IMAGE_WAIT_MS = 60_000
-export const IG_VIDEO_WAIT_MS = 240_000
 
 function urlsOf(derived: DerivedMediaItem[]): string[] {
   return derived.map((d) => d.public_url)
@@ -300,35 +315,15 @@ export function fbObjectKind(postType: PostType): FbObjectKind {
   return postType === 'video' ? 'video' : 'post'
 }
 
-export async function publishToFacebook(input: PublishInput): Promise<PublishResult> {
-  const { post, account, derived } = input
-  const caption = post.caption ?? ''
-  if (post.post_type === 'video') {
-    const { videoId } = await fbPublishVideo({
-      token: account.token,
-      pageId: account.external_id,
-      videoUrl: derived[0].public_url,
-      description: caption,
-    })
-    return { platformPostId: videoId, postRef: postRefFor('facebook', videoId) }
-  }
-  const { postId } = await fbPublishPhotoPost({
-    token: account.token,
-    pageId: account.external_id,
-    imageUrls: urlsOf(derived),
-    caption,
-  })
-  return { platformPostId: postId, postRef: postRefFor('facebook', postId) }
-}
-
-/** Create the Meta-side scheduled post. Returns the Page Post id Planner shows (Video id for videos). */
-export async function scheduleOnFacebook(
-  input: PublishInput & { scheduledAt: Date }
-): Promise<PublishResult> {
+/**
+ * Create the Meta-side SCHEDULED post — the one and only content write to
+ * Meta. Returns the Page Post id Planner shows (Video id for videos).
+ */
+export async function scheduleOnFacebook(input: ScheduleInput): Promise<ScheduleResult> {
   const { post, account, derived, scheduledAt } = input
   const caption = post.caption ?? ''
   if (post.post_type === 'video') {
-    const { videoId } = await fbPublishVideo({
+    const { videoId } = await fbScheduleVideo({
       token: account.token,
       pageId: account.external_id,
       videoUrl: derived[0].public_url,
@@ -347,84 +342,6 @@ export async function scheduleOnFacebook(
   return { platformPostId: postId, postRef: postRefFor('facebook', postId) }
 }
 
-function notReadyError(): MetaApiError {
-  return new MetaApiError(
-    200,
-    { message: 'Instagram media is still processing; will retry', code: 9007, error_subcode: 2207027 },
-    'Instagram container not ready'
-  )
-}
-
-export async function publishToInstagram(input: PublishInput): Promise<PublishResult> {
-  const { post, account, derived, onContainer, sleep, deadline } = input
-  const token = account.token
-  const igUserId = account.external_id
-  const caption = post.caption ?? ''
-
-  // How long one container wait may take: the per-type cap, cut to whatever
-  // is left before the caller's deadline.
-  const budget = (cap: number) => {
-    if (deadline == null) return cap
-    return Math.max(0, Math.min(cap, deadline - Date.now()))
-  }
-  const wait = async (containerId: string, cap: number) => {
-    const maxWaitMs = budget(cap)
-    if (maxWaitMs <= 0) throw notReadyError()
-    return igWaitForContainer({ token, containerId, maxWaitMs, sleep })
-  }
-  const finish = async (creationId: string) => {
-    const mediaId = await igPublish({ token, igUserId, creationId })
-    return { platformPostId: mediaId, postRef: postRefFor('instagram', mediaId) }
-  }
-
-  // Resume: a previous attempt already created the container (persisted via
-  // onContainer). Containers stay valid ~24h, so never start a fresh one —
-  // that restarts reel processing from zero and, if the earlier
-  // media_publish actually went through, posts the media twice.
-  if (post.ig_container_id) {
-    const containerId = post.ig_container_id
-    const state = await igGetContainerStatus({ token, containerId })
-    if (state.statusCode === 'PUBLISHED') {
-      // media_publish succeeded on the earlier attempt but its response was
-      // lost. The container has no media id field; record the container.
-      return { platformPostId: containerId, postRef: postRefFor('instagram', containerId) }
-    }
-    if (state.statusCode === 'FINISHED') return finish(containerId)
-    if (state.statusCode === 'IN_PROGRESS') {
-      await wait(containerId, post.post_type === 'video' ? IG_VIDEO_WAIT_MS : IG_IMAGE_WAIT_MS)
-      return finish(containerId)
-    }
-    // ERROR / EXPIRED: fall through and create a new container.
-  }
-
-  let creationId: string
-  if (post.post_type === 'video') {
-    creationId = await igCreateReel({ token, igUserId, videoUrl: derived[0].public_url, caption })
-    await onContainer?.(creationId)
-    await wait(creationId, IG_VIDEO_WAIT_MS)
-  } else if (post.post_type === 'carousel') {
-    const children: string[] = []
-    for (const d of derived) {
-      const id = await igCreateImageContainer({ token, igUserId, imageUrl: d.public_url, isCarouselItem: true })
-      children.push(id)
-    }
-    for (const id of children) await wait(id, IG_IMAGE_WAIT_MS)
-    creationId = await igCreateCarousel({ token, igUserId, children, caption })
-    await onContainer?.(creationId)
-    await wait(creationId, IG_IMAGE_WAIT_MS)
-  } else {
-    creationId = await igCreateImageContainer({ token, igUserId, imageUrl: derived[0].public_url, caption })
-    await onContainer?.(creationId)
-    await wait(creationId, IG_IMAGE_WAIT_MS)
-  }
-
-  return finish(creationId)
-}
-
-export async function publishNow(input: PublishInput): Promise<PublishResult> {
-  return input.post.platform === 'facebook' ? publishToFacebook(input) : publishToInstagram(input)
-}
-
 export function errorMessage(err: unknown): string {
   if (err instanceof MetaApiError) {
     return err.userMessage ? `${err.message} — ${err.userMessage}` : err.message
@@ -433,15 +350,15 @@ export function errorMessage(err: unknown): string {
 }
 
 /**
- * After Meta confirmed a publish: record it. NEVER moves the row to 'failed'
- * — the post is live, so a DB hiccup here must not produce a Retry button
- * that would publish it again. Returns false when the record could not be
- * written (already logged by the caller).
+ * After Meta published a held post: record it. NEVER moves the row to
+ * 'failed' — the post is live, so a DB hiccup here must not produce a Retry
+ * button that would schedule it again. Returns false when the record could
+ * not be written (already logged by the caller).
  */
 export async function recordPublished(
   store: SocialStore,
   post: SocialPost,
-  out: PublishResult,
+  out: ScheduleResult,
   publishedAt: Date,
   onError: (message: string) => void
 ): Promise<boolean> {
@@ -457,7 +374,7 @@ export async function recordPublished(
     const msg = `Published on Meta as ${out.platformPostId} but the row could not be updated: ${errorMessage(err)}`
     onError(msg)
     // One more try with the reason attached; if that fails too the row stays
-    // 'publishing' (the cron's stale sweep surfaces it) — never 'failed'.
+    // as it was — never 'failed'.
     try {
       await store.update(post.id, { ...patch, last_error: msg })
     } catch {
@@ -477,148 +394,64 @@ export async function recordPublished(
   return true
 }
 
-// ─── Cron runner ─────────────────────────────────────────────────────────────
+// ─── Cron: reconciliation only ───────────────────────────────────────────────
 
-export interface RunDeps {
+export interface ReconcileDeps {
   store: SocialStore
   now: Date
-  /** Injected so tests never touch Meta. */
-  publish?: (input: PublishInput) => Promise<PublishResult>
-  /** Injected: is the Meta-held scheduled FB post live yet? */
+  /** Injected: is the Meta-held scheduled FB post live yet? Tests never touch Meta. */
   fbPostState?: (token: string, postId: string, kind: FbObjectKind) => Promise<{ isPublished: boolean | null }>
   maxPerRun?: number
-  /**
-   * Wall-clock budget for the whole run (ms from entry). Rows are only
-   * claimed while enough of it remains, and each publish gets the remainder
-   * as its deadline, so the function returns before Vercel kills it with
-   * claimed rows stranded in 'publishing'.
-   */
-  budgetMs?: number
   onError?: (message: string, postId: string) => void
 }
 
-export interface RunResult {
-  published: string[]
-  retried: string[]
-  failed: string[]
-  skipped: string[]
+export interface ReconcileResult {
   /** Rows swept from a stale 'publishing' to 'failed'. */
   stale: string[]
+  /** Held posts Meta has published: now 'published', library stamped. */
   fbWentLive: string[]
+  /** Held posts that no longer exist at Meta (deleted in Planner): now 'cancelled'. */
   fbMissing: string[]
+  /** Held posts past their time that Meta has not published yet, or whose read-back failed: left 'scheduled'. */
+  fbHeld: string[]
 }
 
-// Default run budget: cron maxDuration 300 s minus headroom for the FB sweep
-// and the response. Claiming stops when less than one image wait remains.
-export const DEFAULT_RUN_BUDGET_MS = 240_000
-const CLAIM_RESERVE_MS = IG_IMAGE_WAIT_MS
+// A held post is only checked once its time is a minute past, so a Meta
+// publish that is a few seconds late is not read as "still held".
+export const RECONCILE_GRACE_MS = 60_000
 
 /**
- * One cron pass. Every due row is claimed with a compare-and-swap before any
- * network call, so two overlapping runs can never publish the same post.
+ * One cron pass. Reads only: this never calls a Meta create or publish
+ * endpoint. Instagram rows and any legacy 'approved' rows are not touched.
  */
-export async function runSocialPublish(deps: RunDeps): Promise<RunResult> {
-  const {
-    store,
-    now,
-    publish = publishNow,
-    fbPostState = defaultFbPostState,
-    maxPerRun = 10,
-    budgetMs = DEFAULT_RUN_BUDGET_MS,
-    onError = () => {},
-  } = deps
-  const result: RunResult = {
-    published: [],
-    retried: [],
-    failed: [],
-    skipped: [],
-    stale: [],
-    fbWentLive: [],
-    fbMissing: [],
-  }
-  const deadline = Date.now() + budgetMs
+export async function runSocialReconcile(deps: ReconcileDeps): Promise<ReconcileResult> {
+  const { store, now, fbPostState = defaultFbPostState, maxPerRun = 25, onError = () => {} } = deps
+  const result: ReconcileResult = { stale: [], fbWentLive: [], fbMissing: [], fbHeld: [] }
 
-  // 1. Rows a killed function left behind: surface them as 'failed' so /m
-  //    shows Retry (which resumes the persisted container).
+  // 1. Rows a killed approve request left in 'publishing': surface them as
+  //    'failed' so /m shows Retry.
   result.stale = await store.failStale(new Date(now.getTime() - STALE_PUBLISHING_MS))
 
-  // 2. Due rows.
-  const due = await store.listDue(now, maxPerRun)
-  for (const post of due) {
-    if (Date.now() > deadline - CLAIM_RESERVE_MS) {
-      // Out of budget: leave the rest 'approved' for the next tick.
-      result.skipped.push(post.id)
+  // 2. Facebook rows Meta was holding: once the time has passed (+ grace)
+  //    read the published flag so the library shows them as posted.
+  const held = await store.listScheduledFacebook(new Date(now.getTime() - RECONCILE_GRACE_MS), maxPerRun)
+  for (const post of held) {
+    if (!post.platform_post_id) {
+      result.fbHeld.push(post.id)
       continue
     }
-
-    // Everything that can fail without Meta happens BEFORE the claim, so a
-    // missing account or a bad encryption key never strands a 'publishing' row.
     let account: SocialAccount | null
     try {
-      account = await store.loadAccount(post.org_id, post.platform)
+      account = await store.loadAccount(post.org_id, 'facebook')
     } catch (err) {
-      const msg = errorMessage(err)
-      onError(msg, post.id)
-      await store.transitionFrom(post.id, 'approved', { status: 'failed', last_error: msg })
-      result.failed.push(post.id)
+      onError(errorMessage(err), post.id)
+      result.fbHeld.push(post.id)
       continue
     }
     if (!account) {
-      await store.transitionFrom(post.id, 'approved', {
-        status: 'failed',
-        last_error: new MissingAccountError(post.platform).message,
-      })
-      result.failed.push(post.id)
+      result.fbHeld.push(post.id)
       continue
     }
-    if (!post.derived_media || post.derived_media.length === 0) {
-      await store.transitionFrom(post.id, 'approved', {
-        status: 'failed',
-        last_error: 'Media was never prepared; unapprove and approve again',
-      })
-      result.failed.push(post.id)
-      continue
-    }
-
-    const claimed = await store.claim(post)
-    if (!claimed) {
-      result.skipped.push(post.id)
-      continue
-    }
-    const claimedPost: SocialPost = { ...post, status: 'publishing', attempts: post.attempts + 1 }
-
-    let out: PublishResult
-    try {
-      out = await publish({
-        post: claimedPost,
-        account,
-        derived: post.derived_media,
-        onContainer: (id) => store.update(post.id, { ig_container_id: id }),
-        deadline,
-      })
-    } catch (err) {
-      const transient = isTransientMetaError(err)
-      const next = failureOutcome(claimedPost, transient)
-      const status = next.ok ? next.value : 'failed'
-      await store.update(post.id, { status, last_error: errorMessage(err) })
-      if (status === 'approved') result.retried.push(post.id)
-      else result.failed.push(post.id)
-      continue
-    }
-
-    // Meta has the post. Recording it must never flip the row to 'failed'.
-    await recordPublished(store, claimedPost, out, now, (msg) => onError(msg, post.id))
-    result.published.push(post.id)
-  }
-
-  // 3. Facebook rows Meta was holding: once the time has passed (+ a minute
-  //    of grace) read the published flag so the library shows them as posted.
-  const grace = new Date(now.getTime() - 60_000)
-  const held = await store.listScheduledFacebook(grace, maxPerRun)
-  for (const post of held) {
-    if (!post.platform_post_id) continue
-    const account = await store.loadAccount(post.org_id, 'facebook')
-    if (!account) continue
     try {
       const state = await fbPostState(account.token, post.platform_post_id, fbObjectKind(post.post_type))
       if (state.isPublished) {
@@ -630,6 +463,8 @@ export async function runSocialPublish(deps: RunDeps): Promise<RunResult> {
           (msg) => onError(msg, post.id)
         )
         result.fbWentLive.push(post.id)
+      } else {
+        result.fbHeld.push(post.id)
       }
     } catch (err) {
       if (isMetaObjectMissing(err)) {
@@ -643,6 +478,7 @@ export async function runSocialPublish(deps: RunDeps): Promise<RunResult> {
         // Rate limit, blip, field/permission problem: leave it scheduled
         // (still visible on /m) with the reason, check again next run.
         await store.update(post.id, { last_error: errorMessage(err) })
+        result.fbHeld.push(post.id)
       }
     }
   }

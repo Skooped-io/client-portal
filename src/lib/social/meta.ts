@@ -1,17 +1,24 @@
 /**
- * Thin Meta Graph API client for the social publisher (Facebook Pages +
- * Instagram via Facebook Login). Plain fetch, no SDK.
+ * Thin Meta Graph API client for the social publisher (Facebook Pages).
+ * Plain fetch, no SDK.
+ *
+ * Product rule (Joseph, 2026-09-01): the only content-creating calls in this
+ * file create SCHEDULED posts (published=false + scheduled_publish_time) that
+ * Meta holds in Business Suite Planner for review and publishes itself.
+ * There is deliberately no publish-now helper and no Instagram publishing
+ * (IG has no scheduling API; it is scheduled by hand in Business Suite).
  *
  * Endpoint shapes were verified against the live docs on 2026-08-31
  * (docs/social-publisher.md has the citations):
- *   FB single photo    POST /{page-id}/photos  url, caption, published,
- *                      scheduled_publish_time  → { id, post_id }
- *   FB multi photo     unpublished /photos ×n (temporary=true when the post
- *                      is scheduled) then POST /{page-id}/feed with
+ *   FB photo post      unpublished temporary /photos ×n then
+ *                      POST /{page-id}/feed with published=false,
+ *                      scheduled_publish_time and
  *                      attached_media[n]={"media_fbid":id}
- *   FB video           POST /{page-id}/videos  file_url, description
- *   IG                 POST /{ig-user-id}/media (container) → poll
- *                      status_code → POST /{ig-user-id}/media_publish
+ *   FB video           POST /{page-id}/videos  file_url, description,
+ *                      published=false, scheduled_publish_time
+ *   read-back          GET /{id}?fields=is_published|published,
+ *                      scheduled_publish_time,permalink_url
+ *   delete             DELETE /{id}  (held posts only; the caller checks)
  *
  * Rules: every call takes { token } explicitly; the token travels ONLY in the
  * Authorization: Bearer header (never the query string or body, so it can
@@ -100,7 +107,7 @@ export function isMetaObjectMissing(err: unknown): boolean {
 //   1  unknown / API unknown        2  service temporarily unavailable
 //   4  app request limit            17 user request limit
 //   32 page request limit           613 custom rate limit
-//   9007 / 2207027 IG container not ready yet
+//   9007 / 2207027 media still processing
 const TRANSIENT_CODES = new Set([1, 2, 4, 17, 32, 613, 9007])
 const TRANSIENT_SUBCODES = new Set([2207027])
 
@@ -194,43 +201,6 @@ export interface FbScheduledResult extends FbPhotoResult {
 interface PhotosResponse {
   id: string
   post_id?: string
-}
-
-/**
- * Publish one or more photos to the Page right now.
- * Single → /photos with url+caption. Multi → unpublished /photos, then /feed
- * with attached_media (published defaults to true).
- */
-export async function fbPublishPhotoPost(input: {
-  token: string
-  pageId: string
-  imageUrls: string[]
-  caption: string
-}): Promise<FbPhotoResult> {
-  const { token, pageId, imageUrls, caption } = input
-  if (imageUrls.length === 0) throw new Error('fbPublishPhotoPost: no images')
-
-  if (imageUrls.length === 1) {
-    const res = await graph<PhotosResponse>('POST', `${pageId}/photos`, token, {
-      url: imageUrls[0],
-      caption,
-    })
-    return { postId: res.post_id ?? res.id, photoIds: [res.id] }
-  }
-
-  const photoIds: string[] = []
-  for (const url of imageUrls) {
-    const res = await graph<PhotosResponse>('POST', `${pageId}/photos`, token, {
-      url,
-      published: false,
-    })
-    photoIds.push(res.id)
-  }
-  const feed = await graph<{ id: string }>('POST', `${pageId}/feed`, token, {
-    message: caption,
-    ...attachedMedia(photoIds),
-  })
-  return { postId: feed.id, photoIds }
 }
 
 /**
@@ -332,32 +302,31 @@ function attachedMedia(photoIds: string[]): Params {
 }
 
 /**
- * Publish (or schedule) a video on the Page from a public URL. Meta pulls
- * the file itself (file_url); no transcoding on our side in v1. The id
- * returned is a VIDEO node id (read it back with kind: 'video'). A scheduled
- * video is read back like a scheduled photo post and removed on a mismatch.
+ * Create a Meta-side SCHEDULED video on the Page from a public URL. Meta
+ * pulls the file itself (file_url); no transcoding on our side in v1. The id
+ * returned is a VIDEO node id (read it back with kind: 'video'). The video is
+ * read back like a scheduled photo post and removed on a mismatch. There is
+ * no unscheduled variant: `scheduledAt` is required.
  */
-export async function fbPublishVideo(input: {
+export async function fbScheduleVideo(input: {
   token: string
   pageId: string
   videoUrl: string
   description: string
-  scheduledAt?: Date
-}): Promise<{ videoId: string; scheduledPublishTime: number | null }> {
+  scheduledAt: Date
+}): Promise<{ videoId: string; scheduledPublishTime: number }> {
   const { token, pageId, videoUrl, description, scheduledAt } = input
-  const params: Params = { file_url: videoUrl, description }
-  if (scheduledAt) {
-    params.published = false
-    params.scheduled_publish_time = toUnixSeconds(scheduledAt)
-  }
-  const res = await graph<{ id: string }>('POST', `${pageId}/videos`, token, params)
-  if (!scheduledAt) return { videoId: res.id, scheduledPublishTime: null }
-  const actual = await verifyScheduledTime({
-    token,
-    objectId: res.id,
-    kind: 'video',
-    expected: toUnixSeconds(scheduledAt),
+  const when = toUnixSeconds(scheduledAt)
+  const res = await graph<{ id: string }>('POST', `${pageId}/videos`, token, {
+    file_url: videoUrl,
+    description,
+    published: false,
+    scheduled_publish_time: when,
   })
+  if (!res.id) {
+    throw new MetaApiError(200, { message: 'Facebook did not return an id for the scheduled video', code: 100 }, 'no video id')
+  }
+  const actual = await verifyScheduledTime({ token, objectId: res.id, kind: 'video', expected: when })
   return { videoId: res.id, scheduledPublishTime: actual }
 }
 
@@ -425,167 +394,6 @@ export async function igResolveUserId(input: { token: string; pageId: string }):
     fields: 'instagram_business_account,connected_instagram_account',
   })
   return res.instagram_business_account?.id ?? res.connected_instagram_account?.id ?? null
-}
-
-export async function igCreateImageContainer(input: {
-  token: string
-  igUserId: string
-  imageUrl: string
-  caption?: string
-  isCarouselItem?: boolean
-}): Promise<string> {
-  const { token, igUserId, imageUrl, caption, isCarouselItem } = input
-  const res = await graph<{ id: string }>('POST', `${igUserId}/media`, token, {
-    image_url: imageUrl,
-    caption: isCarouselItem ? undefined : caption,
-    is_carousel_item: isCarouselItem ? true : undefined,
-  })
-  return res.id
-}
-
-export async function igCreateCarousel(input: {
-  token: string
-  igUserId: string
-  children: string[]
-  caption: string
-}): Promise<string> {
-  const { token, igUserId, children, caption } = input
-  if (children.length < 2 || children.length > 10) {
-    throw new Error(`igCreateCarousel: needs 2–10 children, got ${children.length}`)
-  }
-  const res = await graph<{ id: string }>('POST', `${igUserId}/media`, token, {
-    media_type: 'CAROUSEL',
-    children: children.join(','),
-    caption,
-  })
-  return res.id
-}
-
-/** Feed video on IG is a Reel since 2023-11-09 (media_type=VIDEO retired). */
-export async function igCreateReel(input: {
-  token: string
-  igUserId: string
-  videoUrl: string
-  caption: string
-  shareToFeed?: boolean
-}): Promise<string> {
-  const { token, igUserId, videoUrl, caption, shareToFeed = true } = input
-  const res = await graph<{ id: string }>('POST', `${igUserId}/media`, token, {
-    media_type: 'REELS',
-    video_url: videoUrl,
-    caption,
-    share_to_feed: shareToFeed,
-  })
-  return res.id
-}
-
-export type IgContainerStatusCode = 'EXPIRED' | 'ERROR' | 'FINISHED' | 'IN_PROGRESS' | 'PUBLISHED'
-
-export interface IgContainerStatus {
-  statusCode: IgContainerStatusCode
-  /** Free text; when statusCode is ERROR this carries the error subcode. */
-  status: string | null
-}
-
-export async function igGetContainerStatus(input: {
-  token: string
-  containerId: string
-}): Promise<IgContainerStatus> {
-  const res = await graph<{ status_code?: string; status?: string }>(
-    'GET',
-    input.containerId,
-    input.token,
-    { fields: 'status_code,status' }
-  )
-  return {
-    statusCode: (res.status_code as IgContainerStatusCode) ?? 'IN_PROGRESS',
-    status: res.status ?? null,
-  }
-}
-
-export const IG_POLL_MAX_INTERVAL_MS = 60_000
-
-/**
- * Poll a container until FINISHED. Meta suggests once a minute for up to five
- * minutes; images usually finish in seconds, so the first poll is fast and
- * the interval doubles toward the one-minute guidance (5→10→20→40→60 s).
- * The wait is capped so the caller stays inside its function limit and
- * throws MetaApiError code 9007 (transient) on timeout so the row is retried
- * (resuming this same container), not failed.
- */
-export async function igWaitForContainer(input: {
-  token: string
-  containerId: string
-  intervalMs?: number
-  maxWaitMs?: number
-  sleep?: (ms: number) => Promise<void>
-}): Promise<IgContainerStatus> {
-  const {
-    token,
-    containerId,
-    intervalMs = 5_000,
-    maxWaitMs = 60_000,
-    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  } = input
-  const started = Date.now()
-  let interval = intervalMs
-  let last: IgContainerStatus = { statusCode: 'IN_PROGRESS', status: null }
-  for (;;) {
-    last = await igGetContainerStatus({ token, containerId })
-    if (last.statusCode === 'FINISHED' || last.statusCode === 'PUBLISHED') return last
-    if (last.statusCode === 'ERROR' || last.statusCode === 'EXPIRED') {
-      throw new MetaApiError(
-        200,
-        {
-          message: `Instagram could not process the media (${last.statusCode}${last.status ? `: ${last.status}` : ''})`,
-          code: 9004,
-          error_subcode: last.status && /^\d+$/.test(last.status) ? Number(last.status) : undefined,
-        },
-        'Instagram container failed'
-      )
-    }
-    const elapsed = Date.now() - started
-    if (elapsed >= maxWaitMs) {
-      throw new MetaApiError(
-        200,
-        { message: 'Instagram media is still processing; will retry', code: 9007, error_subcode: 2207027 },
-        'Instagram container not ready'
-      )
-    }
-    // Never sleep past the deadline: the next poll is the last one.
-    await sleep(Math.min(interval, Math.max(maxWaitMs - elapsed, 0)))
-    interval = Math.min(interval * 2, IG_POLL_MAX_INTERVAL_MS)
-  }
-}
-
-export async function igPublish(input: {
-  token: string
-  igUserId: string
-  creationId: string
-}): Promise<string> {
-  const res = await graph<{ id: string }>('POST', `${input.igUserId}/media_publish`, input.token, {
-    creation_id: input.creationId,
-  })
-  return res.id
-}
-
-export interface IgPublishingLimit {
-  quotaUsage: number
-  quotaTotal: number | null
-}
-
-/** Rolling 24h publish count (limit is 100 API posts per account). */
-export async function igPublishingLimit(input: {
-  token: string
-  igUserId: string
-}): Promise<IgPublishingLimit> {
-  const res = await graph<{
-    data?: Array<{ quota_usage?: number; config?: { quota_total?: number } }>
-  }>('GET', `${input.igUserId}/content_publishing_limit`, input.token, {
-    fields: 'quota_usage,config',
-  })
-  const row = res.data?.[0]
-  return { quotaUsage: row?.quota_usage ?? 0, quotaTotal: row?.config?.quota_total ?? null }
 }
 
 // ─── Token inspection ────────────────────────────────────────────────────────

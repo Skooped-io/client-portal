@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { encrypt } from '@/lib/crypto'
+import { OUT_OF_WINDOW_MESSAGE } from '@/lib/social/queue'
 
 process.env.TOKEN_ENCRYPTION_KEY = 'a'.repeat(64)
 
@@ -35,7 +36,6 @@ const tables = vi.hoisted(() => ({
 }))
 const prepare = vi.hoisted(() => vi.fn())
 const meta = vi.hoisted(() => ({
-  publishNow: vi.fn(),
   scheduleOnFacebook: vi.fn(),
   fbDeletePost: vi.fn(),
   fbGetPost: vi.fn(),
@@ -61,7 +61,6 @@ vi.mock('@/lib/social/meta', async (orig) => ({
 }))
 vi.mock('@/lib/social/service', async (orig) => ({
   ...(await orig<typeof import('@/lib/social/service')>()),
-  publishNow: meta.publishNow,
   scheduleOnFacebook: meta.scheduleOnFacebook,
 }))
 vi.mock('@/lib/logger', () => ({
@@ -71,6 +70,7 @@ vi.mock('@/lib/logger', () => ({
 
 const TOKEN = 'material-token-0123456789'
 const ID = '11111111-2222-4333-8444-555555555555'
+const inTwoHours = () => new Date(Date.now() + 2 * 3600 * 1000).toISOString()
 
 function req(body: unknown) {
   return new NextRequest('http://localhost/api/material/post', {
@@ -84,7 +84,7 @@ function draft(over: Record<string, unknown> = {}) {
   return {
     id: ID,
     org_id: 'org1',
-    platform: 'instagram',
+    platform: 'facebook',
     post_type: 'image',
     caption: null,
     media: [{ path: 'org1/captures/j/1.jpg', content_type: 'image/jpeg' }],
@@ -109,9 +109,9 @@ const account = {
   data: {
     id: 'a1',
     org_id: 'org1',
-    platform: 'instagram',
-    external_id: 'ig1',
-    page_id: 'page1',
+    platform: 'facebook',
+    external_id: 'page1',
+    page_id: null,
     display_name: 'Gunn',
     access_token_enc: encrypt('page-token'),
     token_expires_at: null,
@@ -143,8 +143,6 @@ describe('POST /api/material/post', () => {
     tables.ops.length = 0
     prepare.mockReset()
     prepare.mockResolvedValue([{ path: 'org1/derived/d.jpg', public_url: 'https://x/d.jpg' }])
-    meta.publishNow.mockReset()
-    meta.publishNow.mockResolvedValue({ platformPostId: 'ig-media-1', postRef: 'ig:ig-media-1' })
     meta.scheduleOnFacebook.mockReset()
     meta.scheduleOnFacebook.mockResolvedValue({ platformPostId: 'page1_9', postRef: 'fb:page1_9' })
     meta.fbDeletePost.mockReset()
@@ -183,27 +181,27 @@ describe('POST /api/material/post', () => {
   it('approve without a caption is refused before media prep or account lookup', async () => {
     tables.current = { organizations: org, social_posts: { data: draft(), error: null } }
     const { POST } = await import('../post/route')
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve' }))
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', scheduled_at: inTwoHours() }))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/caption/i)
     expect(prepare).not.toHaveBeenCalled()
     expect(tables.calls).not.toContain('social_accounts')
   })
 
-  it('approve with an over-limit Instagram caption is refused', async () => {
+  it('approve with an over-limit caption is refused', async () => {
     tables.current = { organizations: org, social_posts: { data: draft(), error: null } }
     const { POST } = await import('../post/route')
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'x'.repeat(2201) }))
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'x'.repeat(63207), scheduled_at: inTwoHours() }))
     expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatch(/2,200/)
+    expect((await res.json()).error).toMatch(/63,206/)
   })
 
   it('approve with no connected account is a 409 naming the fix, with no media prep', async () => {
     tables.current = { organizations: org, social_posts: { data: draft(), error: null }, social_accounts: { data: null, error: null } }
     const { POST } = await import('../post/route')
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready' }))
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toMatch(/npm run social-account/)
+    expect((await res.json()).error).toMatch(/social-account/)
     expect(prepare).not.toHaveBeenCalled()
   })
 
@@ -211,7 +209,7 @@ describe('POST /api/material/post', () => {
     tables.current = { organizations: org, social_posts: { data: draft({ status: 'published' }), error: null } }
     const { POST } = await import('../post/route')
     for (const action of ['update', 'approve', 'unapprove', 'delete']) {
-      const res = await POST(req({ token: TOKEN, id: ID, action, caption: 'x' }))
+      const res = await POST(req({ token: TOKEN, id: ID, action, caption: 'x', scheduled_at: inTwoHours() }))
       expect(res.status).toBe(409)
     }
   })
@@ -223,77 +221,80 @@ describe('POST /api/material/post', () => {
     expect((await POST(req({ token: TOKEN, id: ID, action: 'update', scheduled_at: 'soon' }))).status).toBe(400)
     expect((await POST(req({ token: TOKEN, id: ID, action: 'update', scheduled_at: '2026-09-02T09:00' }))).status).toBe(400)
     expect(prepare).not.toHaveBeenCalled()
-    expect(meta.publishNow).not.toHaveBeenCalled()
     expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
   })
 
-  // ── the positive side of the gate ─────────────────────────────────────────
+  // ── the schedule-only rule ────────────────────────────────────────────────
 
-  it('IG draft with a far-future time → approved, zero Meta calls, attempts reset', async () => {
-    seed(draft({ attempts: 3, status: 'failed' }))
-    const { POST } = await import('../post/route')
-    const when = new Date(Date.now() + 24 * 3600 * 1000).toISOString()
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
-    expect(res.status).toBe(200)
-    expect(prepare).toHaveBeenCalledTimes(1)
-    expect(meta.publishNow).not.toHaveBeenCalled()
-    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
-    const writes = statusWrites()
-    expect(writes).toHaveLength(1)
-    expect(writes[0].status).toBe('approved')
-    expect(writes[0].attempts).toBe(0)
-    expect(writes[0].derived_media).toEqual([{ path: 'org1/derived/d.jpg', public_url: 'https://x/d.jpg' }])
-  })
-
-  it('IG draft with a blank time → claimed into publishing, publishNow exactly once, then published', async () => {
+  it('approve with no time is refused: nothing is prepared, claimed, or sent to Meta', async () => {
     seed(draft())
     const { POST } = await import('../post/route')
     const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: null }))
-    expect(res.status).toBe(200)
-    expect(meta.publishNow).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe(OUT_OF_WINDOW_MESSAGE)
+    expect(prepare).not.toHaveBeenCalled()
     expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
-    const input = meta.publishNow.mock.calls[0][0]
-    expect(input.post.status).toBe('publishing')
-    expect(input.deadline).toBeGreaterThan(Date.now())
-    const writes = statusWrites()
-    expect(writes[0].status).toBe('publishing')
-    expect(writes[0].attempts).toBe(1)
-    expect(writes[1].status).toBe('published')
-    expect(writes[1].platform_post_id).toBe('ig-media-1')
+    expect(statusWrites()).toHaveLength(0)
   })
 
-  it('FB draft 2 hours out → claimed into publishing, scheduleOnFacebook once, then scheduled', async () => {
-    seed(draft({ platform: 'facebook' }), { social_accounts: { ...account, data: { ...account.data, platform: 'facebook', external_id: 'page1' } } })
+  it('approve with a past time, 5 minutes out, or 40 days out is refused the same way', async () => {
+    seed(draft())
     const { POST } = await import('../post/route')
-    const when = new Date(Date.now() + 2 * 3600 * 1000).toISOString()
+    const times = [
+      new Date(Date.now() - 60_000).toISOString(),
+      new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      new Date(Date.now() + 40 * 24 * 3600 * 1000).toISOString(),
+    ]
+    for (const when of times) {
+      const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe(OUT_OF_WINDOW_MESSAGE)
+    }
+    expect(prepare).not.toHaveBeenCalled()
+    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
+    expect(statusWrites()).toHaveLength(0)
+  })
+
+  it('FB draft 2 hours out → claimed into publishing, scheduleOnFacebook once, then scheduled with the Meta id', async () => {
+    seed(draft({ attempts: 3, status: 'failed' }))
+    const { POST } = await import('../post/route')
+    const when = inTwoHours()
     const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
     expect(res.status).toBe(200)
+    expect(prepare).toHaveBeenCalledTimes(1)
     expect(meta.scheduleOnFacebook).toHaveBeenCalledTimes(1)
-    expect(meta.publishNow).not.toHaveBeenCalled()
+    const input = meta.scheduleOnFacebook.mock.calls[0][0]
+    expect(input.post.status).toBe('publishing')
+    expect(input.scheduledAt.toISOString()).toBe(when)
     const writes = statusWrites()
+    expect(writes).toHaveLength(2)
     expect(writes[0].status).toBe('publishing')
+    expect(writes[0].attempts).toBe(1)
+    expect(writes[0].derived_media).toEqual([{ path: 'org1/derived/d.jpg', public_url: 'https://x/d.jpg' }])
     expect(writes[1].status).toBe('scheduled')
     expect(writes[1].platform_post_id).toBe('page1_9')
   })
 
-  it('FB draft 5 minutes out → cron (inside the native floor margin), no Meta call', async () => {
-    seed(draft({ platform: 'facebook' }))
+  it('a legacy Instagram row: approve/update/unapprove are refused, delete still works', async () => {
     const { POST } = await import('../post/route')
-    const when = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
-    expect(res.status).toBe(200)
+    seed(draft({ platform: 'instagram' }))
+    for (const action of ['approve', 'update', 'unapprove']) {
+      const res = await POST(req({ token: TOKEN, id: ID, action, caption: 'x', scheduled_at: inTwoHours() }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/Instagram has no scheduling API/)
+    }
     expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
-    expect(meta.publishNow).not.toHaveBeenCalled()
-    expect(statusWrites()[0].status).toBe('approved')
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
+    expect(statusWrites().at(-1)?.status).toBe('cancelled')
   })
 
   it('a losing concurrent approve gets a 409 and never reaches Meta', async () => {
     seed(draft(), {}, 0)
     const { POST } = await import('../post/route')
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: null }))
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
     expect(res.status).toBe(409)
     expect((await res.json()).error).toMatch(/changed elsewhere/)
-    expect(meta.publishNow).not.toHaveBeenCalled()
+    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
   })
 
   it('a losing concurrent unapprove/delete gets a 409', async () => {
@@ -303,48 +304,65 @@ describe('POST /api/material/post', () => {
     expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(409)
   })
 
-  it('a publish-now that times out (transient) goes back to approved for the cron, not failed', async () => {
+  it('Meta refusing the schedule parks the row in failed with the reason (never published)', async () => {
     seed(draft())
     const { MetaApiError } = await import('@/lib/social/meta')
-    meta.publishNow.mockRejectedValue(new MetaApiError(200, { code: 9007, error_subcode: 2207027, message: 'still processing' }, 'x'))
+    meta.scheduleOnFacebook.mockRejectedValue(new MetaApiError(400, { code: 100, message: 'The specified scheduled publish time is invalid' }, 'x'))
     const { POST } = await import('../post/route')
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: null }))
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
     expect(res.status).toBe(200)
     const writes = statusWrites()
-    expect(writes[1].status).toBe('approved')
-    expect(writes[1].last_error).toMatch(/still processing/)
+    expect(writes[1].status).toBe('failed')
+    expect(writes[1].last_error).toMatch(/scheduled publish time is invalid/)
+    expect(writes[1].platform_post_id).toBeNull()
   })
 
   it('a schedule mismatch whose Meta-side delete failed keeps the orphan id on the failed row', async () => {
-    seed(draft({ platform: 'facebook' }), { social_accounts: { ...account, data: { ...account.data, platform: 'facebook', external_id: 'page1' } } })
+    seed(draft())
     const { MetaScheduleMismatchError } = await import('@/lib/social/meta')
     meta.scheduleOnFacebook.mockRejectedValue(new MetaScheduleMismatchError('page1_orphan', 1, 2, false))
     const { POST } = await import('../post/route')
-    const when = new Date(Date.now() + 2 * 3600 * 1000).toISOString()
-    await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
+    await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
     const writes = statusWrites()
     expect(writes[1].status).toBe('failed')
     expect(writes[1].platform_post_id).toBe('page1_orphan')
   })
 
-  it('delete of a failed FB row with an unpublished orphan removes it at Meta; a live one is left alone', async () => {
-    const fbAccount = { social_accounts: { ...account, data: { ...account.data, platform: 'facebook', external_id: 'page1' } } }
+  it('unapprove of a held post deletes it at Meta first; refused once Meta already published it', async () => {
     const { POST } = await import('../post/route')
 
-    seed(draft({ platform: 'facebook', status: 'failed', platform_post_id: 'page1_orphan' }), fbAccount)
+    seed(draft({ status: 'scheduled', platform_post_id: 'page1_held', caption: 'c' }))
+    meta.fbGetPost.mockResolvedValue({ id: 'page1_held', isPublished: false, scheduledPublishTime: 1, permalinkUrl: null })
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'unapprove' }))).status).toBe(200)
+    expect(meta.fbDeletePost).toHaveBeenCalledTimes(1)
+    expect(statusWrites().at(-1)?.status).toBe('draft')
+
+    meta.fbDeletePost.mockClear()
+    seed(draft({ status: 'scheduled', platform_post_id: 'page1_live', caption: 'c' }))
+    meta.fbGetPost.mockResolvedValue({ id: 'page1_live', isPublished: true, scheduledPublishTime: null, permalinkUrl: null })
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'unapprove' }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/already went live/)
+    expect(meta.fbDeletePost).not.toHaveBeenCalled()
+  })
+
+  it('delete of a failed FB row with an unpublished orphan removes it at Meta; a live one is left alone', async () => {
+    const { POST } = await import('../post/route')
+
+    seed(draft({ status: 'failed', platform_post_id: 'page1_orphan' }))
     meta.fbGetPost.mockResolvedValue({ id: 'page1_orphan', isPublished: false, scheduledPublishTime: 1, permalinkUrl: null })
     expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
     expect(meta.fbDeletePost).toHaveBeenCalledTimes(1)
 
     meta.fbDeletePost.mockClear()
-    seed(draft({ platform: 'facebook', status: 'failed', platform_post_id: 'page1_live' }), fbAccount)
+    seed(draft({ status: 'failed', platform_post_id: 'page1_live' }))
     meta.fbGetPost.mockResolvedValue({ id: 'page1_live', isPublished: true, scheduledPublishTime: null, permalinkUrl: null })
     expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
     expect(meta.fbDeletePost).not.toHaveBeenCalled()
-    // ...and Retry on that row is refused rather than posting it twice.
-    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Again', scheduled_at: null }))
+    // ...and Retry on that row is refused rather than scheduling it twice.
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Again', scheduled_at: inTwoHours() }))
     expect(res.status).toBe(409)
     expect((await res.json()).error).toMatch(/already live/)
-    expect(meta.publishNow).not.toHaveBeenCalled()
+    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
   })
 })
