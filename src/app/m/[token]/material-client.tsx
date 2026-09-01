@@ -1,7 +1,15 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Circle, Film, Loader2 } from 'lucide-react'
+import {
+  allowedActions,
+  CAPTION_LIMITS,
+  countHashtags,
+  IG_MAX_HASHTAGS,
+  type Platform,
+  type SocialPost,
+} from '@/lib/social/queue'
 
 export interface MaterialFile {
   path: string
@@ -20,17 +28,237 @@ interface MaterialClientProps {
   token: string
   orgName: string
   files: MaterialFile[]
+  posts: SocialPost[]
+  /** Public bucket prefix; media paths append to it. */
+  mediaBase: string
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function MaterialClient({ token, orgName, files: initial }: MaterialClientProps) {
+function formatWhen(iso: string | null): string {
+  if (!iso) return 'now'
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+/** Date → value for <input type="datetime-local"> in the browser's zone. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function fromLocalInput(value: string): string | null {
+  if (!value) return null
+  const t = new Date(value).getTime()
+  return Number.isNaN(t) ? null : new Date(t).toISOString()
+}
+
+const PLATFORM_LABEL: Record<Platform, string> = { facebook: 'Facebook', instagram: 'Instagram' }
+const PLATFORM_BADGE: Record<Platform, string> = {
+  facebook: 'bg-blue-600 text-white',
+  instagram: 'bg-pink-600 text-white',
+}
+const STATUS_BADGE: Record<SocialPost['status'], string> = {
+  draft: 'bg-slate-200 text-slate-800',
+  approved: 'bg-sky-100 text-sky-800',
+  scheduled: 'bg-indigo-100 text-indigo-800',
+  publishing: 'bg-amber-100 text-amber-800',
+  published: 'bg-green-600 text-white',
+  failed: 'bg-red-600 text-white',
+  cancelled: 'bg-slate-100 text-slate-500',
+}
+
+function statusLabel(post: SocialPost): string {
+  switch (post.status) {
+    case 'draft':
+      return 'Draft'
+    case 'approved':
+      return `Approved · posts ${formatWhen(post.scheduled_at)}`
+    case 'scheduled':
+      return `Scheduled on Facebook · ${formatWhen(post.scheduled_at)}`
+    case 'publishing':
+      return 'Publishing…'
+    case 'published':
+      return `Published ${post.published_at ? formatWhen(post.published_at) : ''}`.trim()
+    case 'failed':
+      return 'Failed'
+    case 'cancelled':
+      return 'Cancelled'
+  }
+}
+
+interface QueueCardProps {
+  post: SocialPost
+  mediaBase: string
+  busy: boolean
+  onAction: (
+    post: SocialPost,
+    action: 'update' | 'approve' | 'unapprove' | 'delete',
+    extra?: { caption?: string; scheduled_at?: string | null }
+  ) => Promise<void>
+}
+
+function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
+  const [caption, setCaption] = useState(post.caption ?? '')
+  const [when, setWhen] = useState(toLocalInput(post.scheduled_at))
+
+  // A server response replaces the row; re-seed the editors from it.
+  useEffect(() => {
+    setCaption(post.caption ?? '')
+    setWhen(toLocalInput(post.scheduled_at))
+  }, [post.updated_at, post.caption, post.scheduled_at])
+
+  const can = allowedActions(post)
+  const limit = CAPTION_LIMITS[post.platform]
+  const hashtags = post.platform === 'instagram' ? countHashtags(caption) : 0
+  const overLimit = caption.length > limit || hashtags > IG_MAX_HASHTAGS
+  const dirty = caption !== (post.caption ?? '') || when !== toLocalInput(post.scheduled_at)
+  const editable = can.edit && !busy
+
+  const extra = () => ({ caption, scheduled_at: fromLocalInput(when) })
+
+  return (
+    <li className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${PLATFORM_BADGE[post.platform]}`}>
+          {PLATFORM_LABEL[post.platform]}
+        </span>
+        <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[post.status]}`}>
+          {statusLabel(post)}
+        </span>
+        <span className="ml-auto text-[11px] text-slate-400">
+          {post.post_type === 'carousel' ? `${post.media.length} photos` : post.post_type}
+        </span>
+      </div>
+
+      <ul className="mt-2 flex gap-1.5 overflow-x-auto">
+        {post.media.slice(0, 6).map((m) => (
+          <li key={m.path} className="h-16 w-16 flex-none overflow-hidden rounded-lg bg-slate-200">
+            {m.content_type.startsWith('video/') ? (
+              <div className="flex h-full w-full items-center justify-center">
+                <Film className="h-6 w-6 text-slate-500" />
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={mediaBase + m.path} alt="" loading="lazy" className="h-full w-full object-cover" />
+            )}
+          </li>
+        ))}
+        {post.media.length > 6 && (
+          <li className="flex h-16 w-16 flex-none items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-600">
+            +{post.media.length - 6}
+          </li>
+        )}
+      </ul>
+
+      <textarea
+        value={caption}
+        onChange={(e) => setCaption(e.target.value)}
+        disabled={!editable}
+        rows={4}
+        placeholder={`Caption for ${PLATFORM_LABEL[post.platform]}…`}
+        className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+      />
+      <div className="mt-1 flex items-center justify-between text-[11px]">
+        <span className={caption.length > limit ? 'font-semibold text-red-600' : 'text-slate-500'}>
+          {caption.length.toLocaleString('en-US')} / {limit.toLocaleString('en-US')}
+        </span>
+        {post.platform === 'instagram' && (
+          <span className={hashtags > IG_MAX_HASHTAGS ? 'font-semibold text-red-600' : 'text-slate-500'}>
+            {hashtags} / {IG_MAX_HASHTAGS} hashtags
+          </span>
+        )}
+      </div>
+
+      <label className="mt-2 block text-[11px] font-medium text-slate-500">
+        Post at
+        <input
+          type="datetime-local"
+          value={when}
+          onChange={(e) => setWhen(e.target.value)}
+          disabled={!editable}
+          className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 focus:border-slate-900 focus:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+        />
+      </label>
+
+      {post.status === 'failed' && post.last_error && (
+        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{post.last_error}</p>
+      )}
+      {post.status === 'scheduled' && (
+        <p className="mt-2 text-xs text-slate-500">
+          Meta is holding this post. It also shows in Business Suite Planner; Unapprove removes it there.
+        </p>
+      )}
+      {post.status === 'approved' && (
+        <p className="mt-2 text-xs text-slate-500">
+          {post.platform === 'instagram'
+            ? 'Instagram has no scheduling API, so our publisher posts it at that time. Unapprove to stop it.'
+            : 'Outside the Facebook 30-day scheduling window, so our publisher posts it at that time.'}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {can.approve && (
+          <button
+            onClick={() => onAction(post, 'approve', extra())}
+            disabled={busy || overLimit || caption.trim().length === 0}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white active:scale-[0.98] disabled:opacity-50"
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {post.status === 'failed' ? 'Retry' : 'Approve'}
+          </button>
+        )}
+        {can.edit && dirty && (
+          <button
+            onClick={() => onAction(post, 'update', extra())}
+            disabled={busy || overLimit}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-50"
+          >
+            Save
+          </button>
+        )}
+        {can.unapprove && (
+          <button
+            onClick={() => onAction(post, 'unapprove')}
+            disabled={busy}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-50"
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            Unapprove
+          </button>
+        )}
+        {can.delete && (
+          <button
+            onClick={() => {
+              if (window.confirm('Delete this post from the queue?')) onAction(post, 'delete')
+            }}
+            disabled={busy}
+            className="rounded-xl px-3 py-2.5 text-sm font-semibold text-red-600 active:scale-[0.98] disabled:opacity-50"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    </li>
+  )
+}
+
+export function MaterialClient({ token, orgName, files: initial, posts: initialPosts, mediaBase }: MaterialClientProps) {
   const [files, setFiles] = useState(initial)
+  const [posts, setPosts] = useState(initialPosts)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [postRef, setPostRef] = useState('')
   const [busy, setBusy] = useState(false)
+  const [busyPost, setBusyPost] = useState<string | null>(null)
+  const [choosingPlatform, setChoosingPlatform] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   const jobs = useMemo(() => {
@@ -44,6 +272,7 @@ export function MaterialClient({ token, orgName, files: initial }: MaterialClien
   }, [files])
 
   const availableCount = files.filter((f) => !f.postedAt).length
+  const activePosts = posts.filter((p) => p.status !== 'cancelled')
 
   const toggle = (path: string) => {
     setSelected((prev) => {
@@ -89,19 +318,101 @@ export function MaterialClient({ token, orgName, files: initial }: MaterialClien
     }
   }
 
+  const queue = async (platforms: Platform[]) => {
+    if (selected.size === 0 || busy) return
+    setBusy(true)
+    setNotice(null)
+    try {
+      // Keep the on-screen order (job groups, newest first) as the carousel order.
+      const paths = files.filter((f) => selected.has(f.path)).map((f) => f.path)
+      const res = await fetch('/api/material/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, paths, platforms }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error ?? 'Could not queue. Try again')
+      const created = (data?.posts ?? []) as SocialPost[]
+      setPosts((prev) => [...created, ...prev])
+      setSelected(new Set())
+      setChoosingPlatform(false)
+      setNotice(`${created.length} draft${created.length === 1 ? '' : 's'} queued. Edit the caption above and approve.`)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not queue. Try again')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const act: QueueCardProps['onAction'] = async (post, action, extra) => {
+    if (busyPost) return
+    setBusyPost(post.id)
+    setNotice(null)
+    try {
+      const res = await fetch('/api/material/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, id: post.id, action, ...extra }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error ?? 'Update failed. Try again')
+      const updated = data?.post as SocialPost | null
+      if (updated) {
+        setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+        if (updated.status === 'published') {
+          const paths = new Set(updated.media.map((m) => m.path))
+          setFiles((prev) =>
+            prev.map((f) =>
+              paths.has(f.path) ? { ...f, postedAt: updated.published_at, postRef: updated.platform_post_id } : f
+            )
+          )
+        }
+        if (updated.status === 'cancelled') setPosts((prev) => prev.filter((p) => p.id !== updated.id))
+        if (action === 'approve' && updated.status === 'failed') {
+          setNotice(updated.last_error ?? 'Meta rejected the post')
+        }
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Update failed. Try again')
+    } finally {
+      setBusyPost(null)
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50 px-4 pb-32 pt-8">
+    <main className="min-h-screen bg-slate-50 px-4 pb-40 pt-8">
       <div className="mx-auto w-full max-w-2xl">
         <header>
           <h1 className="text-2xl font-bold text-slate-900">{orgName} material</h1>
           <p className="mt-1 text-slate-600">
             {availableCount} of {files.length} file{files.length === 1 ? '' : 's'} available to post.
-            Tap to select, then mark below. Long-press a photo to save it.
+            Tap to select, then queue or mark below. Long-press a photo to save it.
           </p>
         </header>
 
         {notice && (
           <p className="mt-4 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{notice}</p>
+        )}
+
+        {activePosts.length > 0 && (
+          <section className="mt-6">
+            <h2 className="text-base font-semibold text-slate-800">Queue</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Nothing posts until you approve it here.
+            </p>
+            <ul className="mt-3 flex flex-col gap-3">
+              {activePosts.map((p) => (
+                <QueueCard
+                  key={p.id}
+                  post={p}
+                  mediaBase={mediaBase}
+                  busy={busyPost === p.id}
+                  onAction={act}
+                />
+              ))}
+            </ul>
+          </section>
         )}
 
         {jobs.map(([job, jobFiles]) => (
@@ -179,31 +490,79 @@ export function MaterialClient({ token, orgName, files: initial }: MaterialClien
       {selected.size > 0 && (
         <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
           <div className="mx-auto flex w-full max-w-2xl flex-col gap-2">
-            <input
-              type="text"
-              value={postRef}
-              onChange={(e) => setPostRef(e.target.value)}
-              placeholder="Where posted? e.g. fb, gbp, ig (optional)"
-              maxLength={120}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => mark(true)}
-                disabled={busy}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white active:scale-[0.98] disabled:opacity-70"
-              >
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                Mark {selected.size} posted
-              </button>
-              <button
-                onClick={() => mark(false)}
-                disabled={busy}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-70"
-              >
-                Unmark
-              </button>
-            </div>
+            {choosingPlatform ? (
+              <>
+                <p className="text-sm font-medium text-slate-700">
+                  Queue {selected.size} file{selected.size === 1 ? '' : 's'} as a draft for:
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => queue(['facebook'])}
+                    disabled={busy}
+                    className="flex-1 rounded-xl bg-blue-600 px-3 py-3 font-semibold text-white active:scale-[0.98] disabled:opacity-70"
+                  >
+                    Facebook
+                  </button>
+                  <button
+                    onClick={() => queue(['instagram'])}
+                    disabled={busy}
+                    className="flex-1 rounded-xl bg-pink-600 px-3 py-3 font-semibold text-white active:scale-[0.98] disabled:opacity-70"
+                  >
+                    Instagram
+                  </button>
+                  <button
+                    onClick={() => queue(['facebook', 'instagram'])}
+                    disabled={busy}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-3 font-semibold text-white active:scale-[0.98] disabled:opacity-70"
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Both
+                  </button>
+                </div>
+                <button
+                  onClick={() => setChoosingPlatform(false)}
+                  disabled={busy}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-70"
+                >
+                  Back
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={postRef}
+                  onChange={(e) => setPostRef(e.target.value)}
+                  placeholder="Where posted? e.g. fb, gbp, ig (optional)"
+                  maxLength={120}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setChoosingPlatform(true)}
+                    disabled={busy}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white active:scale-[0.98] disabled:opacity-70"
+                  >
+                    Queue {selected.size} for posting
+                  </button>
+                  <button
+                    onClick={() => mark(true)}
+                    disabled={busy}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-70"
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Mark posted
+                  </button>
+                  <button
+                    onClick={() => mark(false)}
+                    disabled={busy}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-70"
+                  >
+                    Unmark
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

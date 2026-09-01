@@ -1,11 +1,15 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { POST_COLUMNS } from '@/lib/social/service'
+import type { SocialPost } from '@/lib/social/queue'
 import { MaterialClient, type MaterialFile } from './material-client'
 
 // Joseph-facing material library for one client org: everything the crew has
-// uploaded, posted vs available, with one-tap marking. Same token pattern as
-// /r and /u; always fetched fresh so a revoked token 404s immediately.
+// uploaded, posted vs available, with one-tap marking, plus the social queue
+// (drafts he reviews and approves before anything reaches Meta). Same token
+// pattern as /r and /u; always fetched fresh so a revoked token 404s
+// immediately.
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
@@ -32,12 +36,21 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
 
   if (!org) notFound()
 
-  const { data: uploads } = await supabase
-    .from('capture_uploads')
-    .select('path, job, location, notes, content_type, size_bytes, uploaded_at, posted_at, post_ref, created_at')
-    .eq('org_id', org.id)
-    .not('uploaded_at', 'is', null)
-    .order('created_at', { ascending: false })
+  const [{ data: uploads }, { data: posts }] = await Promise.all([
+    supabase
+      .from('capture_uploads')
+      .select('path, job, location, notes, content_type, size_bytes, uploaded_at, posted_at, post_ref, created_at')
+      .eq('org_id', org.id)
+      .not('uploaded_at', 'is', null)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('social_posts')
+      .select(POST_COLUMNS)
+      .eq('org_id', org.id)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ])
 
   // Bucket is public (created 2026-08-13); plain public URLs render thumbnails
   // and long-press-save on a phone without any signing round-trip.
@@ -55,5 +68,13 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
     createdAt: u.created_at,
   }))
 
-  return <MaterialClient token={token} orgName={org.name} files={files} />
+  return (
+    <MaterialClient
+      token={token}
+      orgName={org.name}
+      files={files}
+      posts={(posts ?? []) as unknown as SocialPost[]}
+      mediaBase={base}
+    />
+  )
 }

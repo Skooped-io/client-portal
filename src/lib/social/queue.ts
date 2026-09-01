@@ -323,7 +323,8 @@ const TRANSITIONS: Record<PostEvent, Partial<Record<PostStatus, PostStatus>>> = 
   unapprove: { approved: 'draft', scheduled: 'draft' },
   claim: { approved: 'publishing' },
   published: { publishing: 'published', scheduled: 'published' },
-  fail: { publishing: 'failed', scheduled: 'failed' },
+  // 'approved' fails when the approve-time Meta call (FB schedule / publish-now) is rejected.
+  fail: { approved: 'failed', publishing: 'failed', scheduled: 'failed' },
   retry: { publishing: 'approved' },
   delete: { draft: 'cancelled', failed: 'cancelled', approved: 'cancelled', scheduled: 'cancelled' },
 }

@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/gbp-posts",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/social-publish",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
