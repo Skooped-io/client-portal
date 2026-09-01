@@ -103,9 +103,10 @@ describe('fbSchedulePhotoPost', () => {
   const when = new Date('2026-09-01T14:00:00Z')
   const unix = 1788271200
 
-  it('single photo: published=false + scheduled_publish_time, then reads the post back', async () => {
+  it('single photo: temporary unpublished upload, scheduled /feed post, then reads the post back', async () => {
     queue(
-      reply(200, { id: '900', post_id: `${PAGE}_900` }),
+      reply(200, { id: '900' }),
+      reply(200, { id: `${PAGE}_900` }),
       reply(200, { id: `${PAGE}_900`, is_published: false, scheduled_publish_time: unix })
     )
     const out = await fbSchedulePhotoPost({
@@ -116,11 +117,16 @@ describe('fbSchedulePhotoPost', () => {
       scheduledAt: when,
     })
     expect(out).toEqual({ postId: `${PAGE}_900`, photoIds: ['900'], scheduledPublishTime: unix })
-    const create = calls[0]
+    const upload = calls[0]
+    expect(upload.body?.get('published')).toBe('false')
+    expect(upload.body?.get('temporary')).toBe('true')
+    expect(upload.body?.has('scheduled_publish_time')).toBe(false)
+    const create = calls[1]
+    expect(create.url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}/feed`)
     expect(create.body?.get('published')).toBe('false')
     expect(create.body?.get('scheduled_publish_time')).toBe(String(unix))
-    expect(create.body?.has('temporary')).toBe(false)
-    const readBack = calls[1]
+    expect(create.body?.get('message')).toBe('Fence day')
+    const readBack = calls[2]
     expect(readBack.method).toBe('GET')
     expect(readBack.url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}_900`)
     expect(readBack.url.searchParams.get('fields')).toContain('scheduled_publish_time')
@@ -128,7 +134,8 @@ describe('fbSchedulePhotoPost', () => {
 
   it('accepts an ISO read-back within tolerance', async () => {
     queue(
-      reply(200, { id: '901', post_id: `${PAGE}_901` }),
+      reply(200, { id: '901' }),
+      reply(200, { id: `${PAGE}_901` }),
       reply(200, { id: `${PAGE}_901`, scheduled_publish_time: '2026-09-01T14:00:30+0000' })
     )
     const out = await fbSchedulePhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'c', scheduledAt: when })
@@ -137,7 +144,8 @@ describe('fbSchedulePhotoPost', () => {
 
   it('read-back mismatch: deletes the post and throws MetaScheduleMismatchError', async () => {
     queue(
-      reply(200, { id: '902', post_id: `${PAGE}_902` }),
+      reply(200, { id: '902' }),
+      reply(200, { id: `${PAGE}_902` }),
       reply(200, { id: `${PAGE}_902`, scheduled_publish_time: unix + 3600 }),
       reply(200, { success: true })
     )
@@ -148,13 +156,14 @@ describe('fbSchedulePhotoPost', () => {
     expect(err.postId).toBe(`${PAGE}_902`)
     expect(err.expected).toBe(unix)
     expect(err.actual).toBe(unix + 3600)
-    expect(calls[2].method).toBe('DELETE')
-    expect(calls[2].url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}_902`)
+    expect(calls[3].method).toBe('DELETE')
+    expect(calls[3].url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}_902`)
   })
 
   it('missing scheduled_publish_time on read-back is a mismatch too', async () => {
     queue(
-      reply(200, { id: '903', post_id: `${PAGE}_903` }),
+      reply(200, { id: '903' }),
+      reply(200, { id: `${PAGE}_903` }),
       reply(200, { id: `${PAGE}_903`, is_published: true }),
       reply(400, { error: { message: 'cannot delete', code: 100 } })
     )

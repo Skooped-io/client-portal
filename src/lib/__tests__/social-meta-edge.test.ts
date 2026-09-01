@@ -52,7 +52,8 @@ const schedule = () =>
 describe('schedule read-back edge cases', () => {
   it('mismatch whose cleanup delete fails carries deleted=false and the post id', async () => {
     queue(
-      reply(200, { id: '904', post_id: `${PAGE}_904` }),
+      reply(200, { id: '904' }),
+      reply(200, { id: `${PAGE}_904` }),
       reply(200, { id: `${PAGE}_904`, scheduled_publish_time: unix + 3600 }),
       reply(400, { error: { message: 'cannot delete', code: 10 } })
     )
@@ -65,7 +66,8 @@ describe('schedule read-back edge cases', () => {
 
   it('mismatch whose delete succeeds reports deleted=true', async () => {
     queue(
-      reply(200, { id: '905', post_id: `${PAGE}_905` }),
+      reply(200, { id: '905' }),
+      reply(200, { id: `${PAGE}_905` }),
       reply(200, { id: `${PAGE}_905`, scheduled_publish_time: unix + 3600 }),
       reply(200, { success: true })
     )
@@ -73,35 +75,37 @@ describe('schedule read-back edge cases', () => {
     expect(err.deleted).toBe(true)
   })
 
-  it('single photo without post_id: deletes the photo and throws (never reads a Photo node back)', async () => {
-    queue(reply(200, { id: '906' }), reply(200, { success: true }))
+  it('scheduled /feed post without an id: deletes the temporary photo and throws', async () => {
+    queue(reply(200, { id: '906' }), reply(200, {}), reply(200, { success: true }))
     const err = await schedule().catch((e) => e)
     expect(err).toBeInstanceOf(MetaApiError)
     expect(err.message).toMatch(/did not return a post id/)
-    expect(calls).toHaveLength(2)
-    expect(calls[1].method).toBe('DELETE')
-    expect(calls[1].url.pathname).toBe(`/${GRAPH_VERSION}/906`)
+    expect(calls).toHaveLength(3)
+    expect(calls[2].method).toBe('DELETE')
+    expect(calls[2].url.pathname).toBe(`/${GRAPH_VERSION}/906`)
   })
 
   it('transient read-back failure returns the post unverified instead of deleting it', async () => {
     queue(
-      reply(200, { id: '907', post_id: `${PAGE}_907` }),
+      reply(200, { id: '907' }),
+      reply(200, { id: `${PAGE}_907` }),
       reply(400, { error: { message: 'Application request limit reached', code: 4 } })
     )
     const out = await schedule()
     expect(out).toEqual({ postId: `${PAGE}_907`, photoIds: ['907'], scheduledPublishTime: unix })
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
   })
 
   it('permanent read-back failure deletes the post and rethrows', async () => {
     queue(
-      reply(200, { id: '908', post_id: `${PAGE}_908` }),
+      reply(200, { id: '908' }),
+      reply(200, { id: `${PAGE}_908` }),
       reply(400, { error: { message: 'Invalid OAuth access token.', code: 190 } }),
       reply(200, { success: true })
     )
     const err = await schedule().catch((e) => e)
     expect(err.code).toBe(190)
-    expect(calls[2].method).toBe('DELETE')
+    expect(calls[3].method).toBe('DELETE')
   })
 })
 

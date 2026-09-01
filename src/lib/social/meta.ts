@@ -251,42 +251,32 @@ export async function fbSchedulePhotoPost(input: {
   if (imageUrls.length === 0) throw new Error('fbSchedulePhotoPost: no images')
   const when = toUnixSeconds(scheduledAt)
 
-  let postId: string
+  // One code path for 1..N images: unpublished temporary photos attached to a
+  // scheduled /feed post. Meta's single-photo shortcut (POST /photos with
+  // scheduled_publish_time) answers with only the photo id and no post_id
+  // (observed live 2026-08-31 on the Skooped page), which leaves nothing to
+  // read back, so it is not used.
   const photoIds: string[] = []
-  if (imageUrls.length === 1) {
+  for (const url of imageUrls) {
+    // temporary=true is required for photos that go into a scheduled post.
     const res = await graph<PhotosResponse>('POST', `${pageId}/photos`, token, {
-      url: imageUrls[0],
-      caption,
+      url,
       published: false,
-      scheduled_publish_time: when,
+      temporary: true,
     })
     photoIds.push(res.id)
-    if (!res.post_id) {
-      // Without post_id we cannot read the Page Post back (a Photo node has no
-      // is_published / scheduled_publish_time), so a mismatch check is
-      // impossible. Remove the photo rather than leave an unverifiable post.
-      await bestEffortDelete(token, res.id)
-      throw new MetaApiError(200, { message: 'Facebook did not return a post id for the scheduled photo', code: 100 }, 'no post_id')
-    }
-    postId = res.post_id
-  } else {
-    for (const url of imageUrls) {
-      // temporary=true is required for photos that go into a scheduled post.
-      const res = await graph<PhotosResponse>('POST', `${pageId}/photos`, token, {
-        url,
-        published: false,
-        temporary: true,
-      })
-      photoIds.push(res.id)
-    }
-    const feed = await graph<{ id: string }>('POST', `${pageId}/feed`, token, {
-      message: caption,
-      published: false,
-      scheduled_publish_time: when,
-      ...attachedMedia(photoIds),
-    })
-    postId = feed.id
   }
+  const feed = await graph<{ id: string }>('POST', `${pageId}/feed`, token, {
+    message: caption,
+    published: false,
+    scheduled_publish_time: when,
+    ...attachedMedia(photoIds),
+  })
+  if (!feed.id) {
+    for (const id of photoIds) await bestEffortDelete(token, id)
+    throw new MetaApiError(200, { message: 'Facebook did not return a post id for the scheduled post', code: 100 }, 'no post id')
+  }
+  const postId = feed.id
 
   const actual = await verifyScheduledTime({ token, objectId: postId, kind: 'post', expected: when })
   return { postId, photoIds, scheduledPublishTime: actual }
