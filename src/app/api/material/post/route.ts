@@ -143,8 +143,10 @@ export async function POST(request: NextRequest) {
     if (!post.platform_post_id) return 'ok'
     const kind = fbObjectKind(post.post_type)
     try {
-      if (post.status === 'failed') {
-        // Only a mismatch orphan is stored on a failed row; confirm it is
+      if (post.status === 'failed' || post.status === 'scheduled') {
+        // A failed row holds a mismatch orphan; a scheduled row holds the held
+        // post, which Meta may already have published if its time passed
+        // before the next tick flipped the row. Confirm it is
         // still unpublished before touching it.
         const state = await fbGetPost({ token: account.token, postId: post.platform_post_id, kind })
         if (state.isPublished) return 'live'
@@ -192,6 +194,9 @@ export async function POST(request: NextRequest) {
         // clear it first so the retry cannot produce a duplicate.
         if (post.platform === 'facebook' && post.status === 'failed' && post.platform_post_id) {
           const removed = await removeHeldFbObject(account)
+          if (removed === 'live' && post.status === 'scheduled') {
+            return refuse('This post already went live on Facebook; the next check will mark it Posted. Take it down on Facebook itself if needed', 409)
+          }
           if (removed === 'live') {
             return refuse(`This post is already live on Facebook (${post.platform_post_id}). Delete this row instead of retrying`, 409)
           }
