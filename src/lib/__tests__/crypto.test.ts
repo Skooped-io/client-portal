@@ -31,9 +31,9 @@ describe('crypto', () => {
       expect(() => encrypt('hello')).toThrow('TOKEN_ENCRYPTION_KEY is not set')
     })
 
-    it('throws when TOKEN_ENCRYPTION_KEY is wrong length', () => {
+    it('throws when TOKEN_ENCRYPTION_KEY is too short', () => {
       process.env.TOKEN_ENCRYPTION_KEY = 'tooshort'
-      expect(() => encrypt('hello')).toThrow('TOKEN_ENCRYPTION_KEY must be a 64-char hex string')
+      expect(() => encrypt('hello')).toThrow('TOKEN_ENCRYPTION_KEY is too short')
     })
   })
 
@@ -91,5 +91,26 @@ describe('crypto', () => {
       const token = 'EAABwzLixnjYBAMeta-style-long-token-that-is-much-longer-than-google-tokens-and-can-be-very-lengthy-indeed'
       expect(decrypt(encrypt(token))).toBe(token)
     })
+  })
+})
+
+describe('TOKEN_ENCRYPTION_KEY formats', () => {
+  const original = process.env.TOKEN_ENCRYPTION_KEY
+  afterEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = original
+  })
+
+  it('accepts a non-hex key by stretching it with SHA-256 and round-trips', async () => {
+    process.env.TOKEN_ENCRYPTION_KEY = 'not-a-hex-key-but-long-enough-2026'
+    const { encrypt, decrypt } = await import('../crypto')
+    const out = encrypt('page-token-value')
+    expect(out).not.toContain('page-token-value')
+    expect(decrypt(out)).toBe('page-token-value')
+  })
+
+  it('rejects a short key', async () => {
+    process.env.TOKEN_ENCRYPTION_KEY = 'short'
+    const { encrypt } = await import('../crypto')
+    expect(() => encrypt('x')).toThrow(/too short/)
   })
 })

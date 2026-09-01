@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 12 // 96 bits — standard for GCM
@@ -7,8 +7,14 @@ const AUTH_TAG_LENGTH = 16
 function getKey(): Buffer {
   const key = process.env.TOKEN_ENCRYPTION_KEY
   if (!key) throw new Error('TOKEN_ENCRYPTION_KEY is not set')
-  if (key.length !== 64) throw new Error('TOKEN_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)')
-  return Buffer.from(key, 'hex')
+  // Preferred: 64 hex chars = 32 raw bytes. Any other non-empty value (the
+  // production key predates this format) is stretched to 32 bytes with
+  // SHA-256, deterministically, so ciphertexts stay decryptable as long as
+  // the env value itself does not change. Nothing was encrypted under the
+  // old strict rule before 2026-09-01, so no migration is needed.
+  if (/^[0-9a-f]{64}$/i.test(key)) return Buffer.from(key, 'hex')
+  if (key.length < 16) throw new Error('TOKEN_ENCRYPTION_KEY is too short (16+ chars, ideally 64 hex)')
+  return createHash('sha256').update(key, 'utf8').digest()
 }
 
 /**
