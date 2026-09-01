@@ -23,9 +23,16 @@
  * Rules: every call takes { token } explicitly; the token travels ONLY in the
  * Authorization: Bearer header (never the query string or body, so it can
  * never land in a Sentry span's http.query or a fetch breadcrumb) and is
- * never logged, never put in error messages. Errors are MetaApiError with
+ * never logged, never put in error messages. The one exception is
+ * GET /debug_token, which must pass the INSPECTED token as `input_token` in
+ * the query: sentry.server.config.ts records no span for that request and
+ * scrubs *token* query params everywhere else. Errors are MetaApiError with
  * Meta's code / error_subcode / message so callers can tell a rate limit
  * (retry) from a bad token (stop).
+ *
+ * The transport (`graph`, module-private) refuses any content-creating POST
+ * that is not a scheduled one, so a future caller cannot publish live by
+ * accident even from inside this file.
  */
 
 export const GRAPH_VERSION = 'v26.0'
@@ -77,14 +84,24 @@ export class MetaApiError extends Error {
  * keep `postId` so the orphan can still be deleted from Meta later.
  */
 export class MetaScheduleMismatchError extends Error {
+  /**
+   * @param reason  set when the post was created but its read-back failed
+   *                permanently (the stored time is unknown, not wrong); the
+   *                original read-back error is kept in `readBackError`.
+   */
   constructor(
     readonly postId: string,
     readonly expected: number,
     readonly actual: number | null,
-    readonly deleted: boolean = false
+    readonly deleted: boolean = false,
+    reason: string | null = null,
+    readonly readBackError: unknown = null
   ) {
+    const tail = deleted ? '' : ' (and it could not be removed; delete it from Planner)'
     super(
-      `Meta stored scheduled_publish_time ${actual ?? 'null'} for post ${postId}, expected ${expected}${deleted ? '' : ' (and it could not be removed; delete it from Planner)'}`
+      reason
+        ? `Meta accepted post ${postId} but it could not be read back (${reason})${tail}`
+        : `Meta stored scheduled_publish_time ${actual ?? 'null'} for post ${postId}, expected ${expected}${tail}`
     )
     this.name = 'MetaScheduleMismatchError'
   }
@@ -144,17 +161,39 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+// Content-creating edges. A POST to one of these is allowed only as a
+// scheduled (published=false) post; Instagram publishing edges never.
+const FB_CONTENT_EDGE = /\/(feed|photos|videos)$/
+const IG_PUBLISH_EDGE = /\/media(_publish)?$/
+
 /**
- * One Graph call. The token rides ONLY in the Authorization header (Graph
- * accepts Bearer for page, user and app tokens), so neither the URL nor the
- * body ever carries it; the URL is never included in thrown errors.
+ * Schedule-only guard on the transport itself (product rule 2026-09-01).
+ * Throws before any network call for a POST that would publish live.
  */
-export async function graph<T = Record<string, unknown>>(
+export function assertScheduleOnly(method: string, path: string, params: Params): void {
+  if (method !== 'POST') return
+  const p = `/${path.replace(/^\//, '')}`
+  if (IG_PUBLISH_EDGE.test(p)) {
+    throw new Error(`Refused: Instagram publishing (${p}) is not part of the schedule-only publisher`)
+  }
+  if (FB_CONTENT_EDGE.test(p) && params.published !== false) {
+    throw new Error(`Refused: POST ${p} without published=false would publish live; only scheduled posts are created`)
+  }
+}
+
+/**
+ * One Graph call (module-private: every caller is one of the named helpers
+ * below). The token rides ONLY in the Authorization header (Graph accepts
+ * Bearer for page, user and app tokens), so neither the URL nor the body
+ * ever carries it; the URL is never included in thrown errors.
+ */
+async function graph<T = Record<string, unknown>>(
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   token: string,
   params: Params = {}
 ): Promise<T> {
+  assertScheduleOnly(method, path, params)
   const url = new URL(`${GRAPH_BASE}/${path.replace(/^\//, '')}`)
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
   const init: RequestInit = { method, headers }
@@ -179,7 +218,7 @@ export async function graph<T = Record<string, unknown>>(
 
 /** Strip anything that could be a token from a path before it lands in a message. */
 function redactPath(path: string): string {
-  return path.replace(/access_token=[^&]+/g, 'access_token=***')
+  return path.replace(/(access_token|input_token)=[^&]+/g, '$1=***')
 }
 
 export function toUnixSeconds(date: Date): number {
@@ -260,7 +299,10 @@ export async function fbSchedulePhotoPost(input: {
  *   - transient read-back failure (rate limit, 5xx, network) → the create
  *     call already carried scheduled_publish_time, so return the expected
  *     time unverified rather than delete a post that is probably right
- *   - any other read-back failure → best-effort delete, rethrow
+ *   - any other read-back failure → best-effort delete, throw
+ *     MetaScheduleMismatchError with a reason (so the caller still gets the
+ *     post id and whether the delete worked; the original error rides in
+ *     readBackError)
  */
 async function verifyScheduledTime(input: {
   token: string
@@ -274,8 +316,9 @@ async function verifyScheduledTime(input: {
     actual = (await fbGetPost({ token, postId: objectId, kind })).scheduledPublishTime
   } catch (err) {
     if (isTransientMetaError(err)) return expected
-    await bestEffortDelete(token, objectId)
-    throw err
+    const deleted = await bestEffortDelete(token, objectId)
+    const reason = err instanceof Error ? err.message : 'unknown error'
+    throw new MetaScheduleMismatchError(objectId, expected, null, deleted, reason, err)
   }
   if (actual == null || Math.abs(actual - expected) > SCHEDULE_TOLERANCE_SECONDS) {
     const deleted = await bestEffortDelete(token, objectId)
@@ -381,19 +424,6 @@ function normaliseTimestamp(value: string): number | null {
 
 export async function fbDeletePost(input: { token: string; postId: string }): Promise<void> {
   await graph<{ success?: boolean }>('DELETE', input.postId, input.token)
-}
-
-// ─── Instagram (via Facebook Login) ──────────────────────────────────────────
-
-/** IG user id for a Page: business-conversion link first, page-settings link second. */
-export async function igResolveUserId(input: { token: string; pageId: string }): Promise<string | null> {
-  const res = await graph<{
-    instagram_business_account?: { id: string }
-    connected_instagram_account?: { id: string }
-  }>('GET', input.pageId, input.token, {
-    fields: 'instagram_business_account,connected_instagram_account',
-  })
-  return res.instagram_business_account?.id ?? res.connected_instagram_account?.id ?? null
 }
 
 // ─── Token inspection ────────────────────────────────────────────────────────

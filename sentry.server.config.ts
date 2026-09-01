@@ -1,21 +1,11 @@
 import * as Sentry from '@sentry/nextjs'
+import { isSecretBearingRequest, scrubData, scrubUrl } from '@/lib/sentry-scrub'
 
-// Meta Graph calls carry the Page token only in the Authorization header
-// (src/lib/social/meta.ts), which Sentry never records. Belt and braces: strip
-// any access_token that still shows up in a span's URL / query or a fetch
-// breadcrumb, so a credential can never ride into Sentry.
-const SECRET_QUERY = /([?&])access_token=[^&#]*/gi
-
-function scrubUrl(value: unknown): unknown {
-  return typeof value === 'string' ? value.replace(SECRET_QUERY, '$1access_token=***') : value
-}
-
-function scrubData(data: Record<string, unknown> | undefined): void {
-  if (!data) return
-  for (const key of ['url', 'http.url', 'http.query', 'query']) {
-    if (key in data) data[key] = scrubUrl(data[key])
-  }
-}
+// Belt and braces against a credential riding into Sentry: the Meta Page
+// token normally travels only in an Authorization header, but /debug_token
+// carries it in the query string, so (1) that request gets no outgoing span
+// at all and (2) every URL-bearing span/breadcrumb field is scrubbed of
+// *token*/*secret* query parameters (src/lib/sentry-scrub.ts).
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -26,6 +16,11 @@ Sentry.init({
 
   // Only send errors in production
   enabled: process.env.NODE_ENV === 'production',
+
+  integrations: [
+    Sentry.httpIntegration({ ignoreOutgoingRequests: (url) => isSecretBearingRequest(url) }),
+    Sentry.nativeNodeFetchIntegration({ ignoreOutgoingRequests: (url) => isSecretBearingRequest(url) }),
+  ],
 
   beforeSendSpan(span) {
     if (span.description) span.description = scrubUrl(span.description) as string

@@ -415,4 +415,56 @@ describe('POST /api/material/post', () => {
     expect((await res.json()).error).toMatch(/already live/)
     expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
   })
+
+  it('Meta accepted the post but the success write failed: retried once, then parked as failed WITH the id (no duplicate on Retry)', async () => {
+    // social_posts: the load returns the draft; the claim (update #1) lands,
+    // the 'scheduled' write and its retry (#2, #3) blip, the 'failed'
+    // fallback (#4) lands.
+    let updates = 0
+    const flaky: TableEntry = (ops) => {
+      if (!ops.some((o) => o.startsWith('update:'))) return { data: draft(), error: null }
+      updates += 1
+      if (updates === 2 || updates === 3) return { data: null, error: { message: 'connection reset' } }
+      return { data: [{ id: ID }], error: null }
+    }
+    tables.current = { organizations: org, social_posts: flaky, social_accounts: account }
+    const { POST } = await import('../post/route')
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    expect(res.status).toBe(200)
+    expect(meta.scheduleOnFacebook).toHaveBeenCalledTimes(1)
+    const writes = statusWrites()
+    expect(writes.map((w) => w.status)).toEqual(['publishing', 'scheduled', 'scheduled', 'failed'])
+    expect(writes[3].platform_post_id).toBe('page1_9')
+    expect(writes[3].last_error).toMatch(/Scheduled at Facebook \(page1_9\).*connection reset/)
+  })
+
+  it('Meta accepted the post but the success write blipped once: the retry lands and the row is scheduled', async () => {
+    let updates = 0
+    const flaky: TableEntry = (ops) => {
+      if (!ops.some((o) => o.startsWith('update:'))) return { data: draft(), error: null }
+      updates += 1
+      if (updates === 2) return { data: null, error: { message: 'connection reset' } }
+      return { data: [{ id: ID }], error: null }
+    }
+    tables.current = { organizations: org, social_posts: flaky, social_accounts: account }
+    const { POST } = await import('../post/route')
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))).status).toBe(200)
+    const writes = statusWrites()
+    expect(writes.map((w) => w.status)).toEqual(['publishing', 'scheduled', 'scheduled'])
+    expect(writes[2].platform_post_id).toBe('page1_9')
+  })
+
+  it('a read-back failure that leaves the post at Meta keeps its id on the failed row', async () => {
+    seed(draft())
+    const { MetaScheduleMismatchError } = await import('@/lib/social/meta')
+    meta.scheduleOnFacebook.mockRejectedValue(
+      new MetaScheduleMismatchError('page1_unread', 1, null, false, 'Invalid OAuth access token.', new Error('x'))
+    )
+    const { POST } = await import('../post/route')
+    await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    const writes = statusWrites()
+    expect(writes[1].status).toBe('failed')
+    expect(writes[1].platform_post_id).toBe('page1_unread')
+    expect(writes[1].last_error).toMatch(/could not be read back/)
+  })
 })

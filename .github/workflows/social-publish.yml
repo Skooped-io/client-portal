@@ -36,7 +36,7 @@ jobs:
         run: |
           set -u
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET secret is not set on this repository" >&2
+            echo "SOCIAL_CRON_SECRET repository secret is not set" >&2
             exit 1
           fi
           curl -fsS --max-time 310 \

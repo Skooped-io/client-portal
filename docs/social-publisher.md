@@ -62,28 +62,43 @@ Env vars (Vercel):
 | var | used for |
 |---|---|
 | `TOKEN_ENCRYPTION_KEY` | AES-256-GCM for `social_accounts.access_token_enc` (`src/lib/crypto.ts`) |
-| `CRON_SECRET` / `SOCIAL_CRON_SECRET` | Bearer auth on the cron tick AND on `/api/admin/social-account`. `SOCIAL_CRON_SECRET` is also the GitHub repository secret the workflow sends |
+| `CRON_SECRET` / `SOCIAL_CRON_SECRET` | Bearer auth on the cron tick only. `SOCIAL_CRON_SECRET` is also the GitHub repository secret the workflow sends, so it can never do more than trigger a read-only reconcile |
+| `ADMIN_API_SECRET` | Bearer auth on `/api/admin/social-account` (writes Page tokens). Vercel env only — never a GitHub secret |
 | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | admin client; public bucket URLs Meta fetches from |
-| `META_APP_ID`, `META_APP_SECRET` | optional: the admin route runs `/debug_token` and stores the expiry |
+| `META_APP_ID`, `META_APP_SECRET` | optional: the admin route runs `/debug_token`, stores the expiry and refuses a token whose `profile_id` is not the given Page |
 | `SOCIAL_ACCOUNTS_JSON` | optional fallback when no `social_accounts` row exists (see `loadAccountFromEnv`) |
+
+Secrets are compared in constant time (`src/lib/cron-secret.ts`).
 
 ### Connect a client's Facebook Page
 
 Get a long-lived **Page access token** from a user with the CREATE_CONTENT
 task on the Page (`pages_manage_posts`, `pages_read_engagement`,
-`pages_show_list`), then:
+`pages_show_list`). Put the body in a file so the token never touches the
+command line (shell history, `ps`), then:
 
 ```
+cat > body.json <<'EOF'
+{"org_slug":"gunns-fencing","platform":"facebook","external_id":"<page-id>","display_name":"Gunn's Fencing","access_token":"<token>"}
+EOF
 curl -X POST https://app.skooped.io/api/admin/social-account \
-  -H "Authorization: Bearer $SOCIAL_CRON_SECRET" -H "Content-Type: application/json" \
-  -d '{"org_slug":"gunns-fencing","platform":"facebook","external_id":"<page-id>","display_name":"Gunn'\''s Fencing","access_token":"<token>"}'
+  -H "Authorization: Bearer $ADMIN_API_SECRET" -H "Content-Type: application/json" \
+  --data-binary @body.json
+rm body.json
 ```
 
+`external_id` (and `page_id`) must be the numeric Page id; `access_token`
+must be 16–1024 chars.
 Response: `{ account: { id, org_id, org_slug, platform, external_id, page_id, display_name, token_expires_at } }`
 — the token is never echoed or logged. Re-running replaces the stored token.
-Disconnect: `DELETE` with `{ "org_slug", "platform": "facebook" }` → `{ removed }`.
+Disconnect: `DELETE` with `{ "org_slug", "platform": "facebook" }` →
+`{ removed, env_fallback_active }`. That removes the stored token only: posts
+Meta already holds still publish (delete them in Planner; their rows can no
+longer be reconciled or unapproved from /m), and while `SOCIAL_ACCOUNTS_JSON`
+still lists the org (`env_fallback_active: true`) the publisher keeps using
+that entry — remove it too.
 (`npm run social-account` still works from a machine that has
-`TOKEN_ENCRYPTION_KEY` + `SUPABASE_DB_URL`.)
+`TOKEN_ENCRYPTION_KEY` + `SUPABASE_DB_URL`; Facebook only.)
 
 ## Media
 
@@ -100,7 +115,11 @@ video+images and multiple videos are refused at queue time.
 ## Meta facts this code relies on (verified 2026-08-31)
 
 - Graph API pinned at `v26.0` (`src/lib/social/meta.ts`). Page tokens travel
-  only in the `Authorization: Bearer` header.
+  only in the `Authorization: Bearer` header, except `/debug_token`, which
+  needs the inspected token as `input_token` in the query — Sentry records no
+  span for that request and scrubs `*token*` query params everywhere
+  (`src/lib/sentry-scrub.ts`). The transport refuses any content POST that is
+  not `published=false` and any Instagram publishing edge.
 - Scheduled photo post: unpublished `temporary=true` `/photos` + `/feed` with
   `published=false`, `scheduled_publish_time`, `attached_media[n]` (Meta's
   single-photo scheduled call returns no post_id, seen live 8/31). Video:
@@ -117,6 +136,9 @@ video+images and multiple videos are refused at queue time.
 - No OAuth flow; tokens are pasted into the admin route (or the CLI).
 - No video transcoding or cover frames.
 - Facebook video posts store the Video node id; Planner deep-links are not built.
-- A `publishing` row whose approve was killed AFTER Meta accepted the post
-  but before the row was written is swept to `failed` without a post id;
-  check Planner before Retry (the failed-row message says so).
+- A `publishing` row whose approve process was KILLED after Meta accepted
+  the post but before the row was written is swept to `failed` without a
+  post id; check Planner before Retry (the failed-row message says so). A
+  failed DB write on that path (not a kill) is retried once and then parked
+  as `failed` with the id, so Retry replaces the held post instead of
+  duplicating it.

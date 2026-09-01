@@ -238,22 +238,45 @@ export async function POST(request: NextRequest) {
         if (!claimed) return refuse(STALE, 409)
         const claimedPost: SocialPost = { ...post, ...approvedPatch, status: 'publishing' } as SocialPost
 
+        let out
         try {
-          const out = await scheduleOnFacebook({ post: claimedPost, account, derived, scheduledAt })
-          await store.update(post.id, { status: 'scheduled', platform_post_id: out.platformPostId })
-          portal.event('material.post.approve', 'completed', {
-            metadata: { orgId: org.id, postId: post.id, platform: post.platform, metaPostId: out.platformPostId },
-          })
-          return respond()
+          out = await scheduleOnFacebook({ post: claimedPost, account, derived, scheduledAt })
         } catch (err) {
           const msg = errorMessage(err)
-          // A mismatch whose cleanup delete failed leaves a post at Meta;
-          // keep its id so Retry/Delete can remove it.
+          // A mismatch (or an unreadable read-back) whose cleanup delete
+          // failed leaves a post at Meta; keep its id so Retry/Delete can
+          // remove it instead of scheduling a second copy.
           const orphan = err instanceof MetaScheduleMismatchError && !err.deleted ? err.postId : null
           await store.update(post.id, { status: 'failed', last_error: msg, platform_post_id: orphan })
           portal.error('material.post.schedule', msg, { metadata: { postId: post.id, orphan } })
           return respond()
         }
+
+        // Meta has accepted the post: from here the id must never be lost,
+        // or Retry would create a duplicate. One retry of the success write,
+        // then park the row as failed WITH the id (Retry clears it at Meta
+        // first; Delete removes it).
+        const scheduledPatch: PostPatch = { status: 'scheduled', platform_post_id: out.platformPostId }
+        try {
+          try {
+            await store.update(post.id, scheduledPatch)
+          } catch {
+            await store.update(post.id, scheduledPatch)
+          }
+        } catch (err) {
+          const msg = errorMessage(err)
+          await store.update(post.id, {
+            status: 'failed',
+            platform_post_id: out.platformPostId,
+            last_error: `Scheduled at Facebook (${out.platformPostId}) but the row could not be updated: ${msg}. Retry will replace the held post`,
+          })
+          portal.error('material.post.schedule.record', msg, { metadata: { postId: post.id, orphan: out.platformPostId } })
+          return respond()
+        }
+        portal.event('material.post.approve', 'completed', {
+          metadata: { orgId: org.id, postId: post.id, platform: post.platform, metaPostId: out.platformPostId },
+        })
+        return respond()
       }
 
       case 'unapprove':

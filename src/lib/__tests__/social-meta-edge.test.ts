@@ -95,7 +95,7 @@ describe('schedule read-back edge cases', () => {
     expect(calls).toHaveLength(3)
   })
 
-  it('permanent read-back failure deletes the post and rethrows', async () => {
+  it('permanent read-back failure deletes the post and throws a mismatch that still names the post', async () => {
     queue(
       reply(200, { id: '908' }),
       reply(200, { id: `${PAGE}_908` }),
@@ -103,8 +103,27 @@ describe('schedule read-back edge cases', () => {
       reply(200, { success: true })
     )
     const err = await schedule().catch((e) => e)
-    expect(err.code).toBe(190)
+    expect(err).toBeInstanceOf(MetaScheduleMismatchError)
+    expect(err.postId).toBe(`${PAGE}_908`)
+    expect(err.deleted).toBe(true)
+    expect(err.message).toMatch(/could not be read back .*Invalid OAuth/)
+    expect(err.readBackError).toBeInstanceOf(MetaApiError)
+    expect(err.readBackError.code).toBe(190)
     expect(calls[3].method).toBe('DELETE')
+  })
+
+  it('permanent read-back failure whose delete also fails keeps the id with deleted=false', async () => {
+    queue(
+      reply(200, { id: '909' }),
+      reply(200, { id: `${PAGE}_909` }),
+      reply(400, { error: { message: 'Invalid OAuth access token.', code: 190 } }),
+      reply(400, { error: { message: 'Invalid OAuth access token.', code: 190 } })
+    )
+    const err = await schedule().catch((e) => e)
+    expect(err).toBeInstanceOf(MetaScheduleMismatchError)
+    expect(err.postId).toBe(`${PAGE}_909`)
+    expect(err.deleted).toBe(false)
+    expect(err.message).toContain('delete it from Planner')
   })
 })
 

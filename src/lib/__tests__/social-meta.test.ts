@@ -4,7 +4,6 @@ import {
   fbSchedulePhotoPost,
   fbGetPost,
   GRAPH_VERSION,
-  igResolveUserId,
   isMetaObjectMissing,
   isTransientMetaError,
   MetaApiError,
@@ -101,8 +100,31 @@ describe('graph transport', () => {
     expect(names).not.toContain('igCreateImageContainer')
     expect(names).not.toContain('igCreateReel')
     expect(names).not.toContain('igCreateCarousel')
+    expect(names).not.toContain('igResolveUserId')
+    // The raw transport is module-private: nothing outside can POST an
+    // arbitrary edge.
+    expect(names).not.toContain('graph')
     expect(names).toContain('fbSchedulePhotoPost')
     expect(names).toContain('fbScheduleVideo')
+  })
+
+  it('the transport itself refuses a live-publishing POST before any network call', async () => {
+    const { assertScheduleOnly } = await import('../social/meta')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi', published: true })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/photos`, { url: 'https://x/a.jpg' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/videos`, { file_url: 'https://x/v.mp4' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${IG}/media`, { image_url: 'https://x/a.jpg' })).toThrow(/Instagram/)
+    expect(() => assertScheduleOnly('POST', `${IG}/media_publish`, { creation_id: '1', published: false })).toThrow(/Instagram/)
+    // What the scheduling helpers actually send is allowed; reads and deletes always are.
+    expect(() => assertScheduleOnly('POST', `${PAGE}/photos`, { url: 'x', published: false, temporary: true })).not.toThrow()
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi', published: false, scheduled_publish_time: unix })).not.toThrow()
+    expect(() => assertScheduleOnly('POST', `${PAGE}/videos`, { file_url: 'x', published: false, scheduled_publish_time: unix })).not.toThrow()
+    expect(() => assertScheduleOnly('GET', `${PAGE}/feed`, {})).not.toThrow()
+    expect(() => assertScheduleOnly('DELETE', `${PAGE}_1`, {})).not.toThrow()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -225,18 +247,8 @@ describe('fbGetPost', () => {
   })
 })
 
-describe('igResolveUserId (lookup only; the publisher never posts to Instagram)', () => {
-  it('resolves the IG user id from the page', async () => {
-    queue(reply(200, { instagram_business_account: { id: IG }, id: PAGE }))
-    expect(await igResolveUserId({ token: TOKEN, pageId: PAGE })).toBe(IG)
-    expect(calls[0].url.searchParams.get('fields')).toContain('instagram_business_account')
-    queue(reply(200, { id: PAGE }))
-    expect(await igResolveUserId({ token: TOKEN, pageId: PAGE })).toBeNull()
-  })
-})
-
 describe('debugToken', () => {
-  it('uses the app token and maps the summary', async () => {
+  it('uses the app token and maps the summary (profile_id included)', async () => {
     queue(
       reply(200, {
         data: { is_valid: true, type: 'PAGE', app_id: 'app1', expires_at: 0, scopes: ['pages_manage_posts'], profile_id: PAGE },
@@ -246,8 +258,22 @@ describe('debugToken', () => {
     expect(info.isValid).toBe(true)
     expect(info.expiresAt).toBeNull()
     expect(info.scopes).toEqual(['pages_manage_posts'])
+    expect(info.profileId).toBe(PAGE)
     expect(calls[0].url.searchParams.has('access_token')).toBe(false)
     expect(calls[0].auth).toBe('Bearer app1|shh')
+    // The inspected token has to ride as input_token (Graph has no other
+    // way); it is the app token that must stay out of the URL. Sentry
+    // records no span for /debug_token (src/lib/sentry-scrub.ts).
     expect(calls[0].url.searchParams.get('input_token')).toBe(TOKEN)
+    expect(calls[0].url.toString()).not.toContain('app1|shh')
+    expect(calls[0].url.toString()).not.toContain('app1%7Cshh')
+  })
+
+  it('a failed debug_token never puts either token in the error message', async () => {
+    queue(reply(400, { error: { message: 'Invalid appsecret', code: 190 } }))
+    const err = await debugToken({ token: TOKEN, appId: 'app1', appSecret: 'shh' }).catch((e) => e)
+    expect(err).toBeInstanceOf(MetaApiError)
+    expect(err.message).not.toContain(TOKEN)
+    expect(err.message).not.toContain('shh')
   })
 })
