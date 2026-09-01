@@ -6,11 +6,11 @@ const run = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 vi.mock('@/lib/social/service', () => ({
   createSupabaseStore: () => ({}),
-  runSocialPublish: run,
+  runSocialReconcile: run,
 }))
 // The real logger's flush() reaches for Axiom; never from a test.
 vi.mock('@/lib/logger', () => ({
-  ops: { info: vi.fn(), error: vi.fn() },
+  ops: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
   flush: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -21,13 +21,15 @@ function get(auth?: string) {
   })
 }
 
-describe('GET /api/cron/social-publish', () => {
+describe('GET /api/cron/social-publish (reconciliation only)', () => {
   beforeEach(() => {
     process.env.CRON_SECRET = 'cron-secret'
+    delete process.env.SOCIAL_CRON_SECRET
     run.mockReset()
   })
   afterEach(() => {
     delete process.env.CRON_SECRET
+    delete process.env.SOCIAL_CRON_SECRET
   })
 
   it('401s without the bearer secret and never runs', async () => {
@@ -37,25 +39,28 @@ describe('GET /api/cron/social-publish', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('runs one pass and reports counts', async () => {
-    run.mockResolvedValue({
-      published: ['a'],
-      retried: [],
-      failed: ['b'],
-      skipped: [],
-      stale: ['s'],
-      fbWentLive: ['c'],
-      fbMissing: [],
-    })
+  it('accepts SOCIAL_CRON_SECRET (the GitHub tick) as well as CRON_SECRET', async () => {
+    process.env.SOCIAL_CRON_SECRET = 'gh-secret'
+    run.mockResolvedValue({ stale: [], fbWentLive: [], fbMissing: [], fbHeld: [] })
+    const { GET } = await import('../social-publish/route')
+    expect((await GET(get('Bearer gh-secret'))).status).toBe(200)
+    expect((await GET(get('Bearer cron-secret'))).status).toBe(200)
+  })
+
+  it('runs one reconciliation pass and reports counts — nothing is published from here', async () => {
+    run.mockResolvedValue({ stale: ['s'], fbWentLive: ['c'], fbMissing: ['m'], fbHeld: ['h1', 'h2'] })
     const { GET } = await import('../social-publish/route')
     const res = await GET(get('Bearer cron-secret'))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.published).toBe(1)
-    expect(body.failed).toBe(1)
     expect(body.stale).toBe(1)
     expect(body.fbWentLive).toBe(1)
+    expect(body.fbMissing).toBe(1)
+    expect(body.fbHeld).toBe(2)
+    expect(body).not.toHaveProperty('published')
     expect(run).toHaveBeenCalledTimes(1)
+    // The runner takes no publish hook at all: there is nothing to inject.
+    expect(run.mock.calls[0][0]).not.toHaveProperty('publish')
   })
 
   it('500s (without crashing) when the pass throws', async () => {

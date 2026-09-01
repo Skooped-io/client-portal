@@ -5,16 +5,22 @@
  * caption limits, and the state machine are unit-testable without Supabase or
  * Meta. Routes and the cron call these and do the side effects.
  *
- * Product rule (Joseph, 2026-08-31): nothing is published without his
- * approval. A row is created as 'draft', edited, and only an explicit
- * 'approve' event moves it toward Meta.
+ * Product rule (Joseph, 2026-09-01, overrides the 8/31 design): the Meta API
+ * is only ever used to SCHEDULE a Facebook post. Nothing is published live
+ * from Skooped. Approve creates a Meta-held scheduled post (published=false +
+ * scheduled_publish_time); Joseph reviews, edits or deletes it in Business
+ * Suite Planner, and Meta publishes it at the chosen time. Instagram has no
+ * scheduling API and is therefore not handled here at all: it is scheduled
+ * by hand in Business Suite and the file marked posted on /m.
  */
 
+// 'instagram' remains in the type because rows from the 8/31 design may still
+// exist; they are shown read-only and only Delete applies to them.
 export type Platform = 'facebook' | 'instagram'
 export type PostType = 'image' | 'carousel' | 'video'
 export type PostStatus =
   | 'draft'
-  | 'approved'
+  | 'approved' // legacy (8/31 design): never written anymore; unapprove/delete only
   | 'scheduled'
   | 'publishing'
   | 'published'
@@ -22,6 +28,8 @@ export type PostStatus =
   | 'cancelled'
 
 export const PLATFORMS: readonly Platform[] = ['facebook', 'instagram'] as const
+/** The platforms the publisher can queue for. Facebook only: Meta can hold a scheduled Page post. */
+export const PUBLISH_PLATFORMS: readonly Platform[] = ['facebook'] as const
 export const POST_STATUSES: readonly PostStatus[] = [
   'draft',
   'approved',
@@ -55,6 +63,7 @@ export interface SocialPost {
   approved_at: string | null
   published_at: string | null
   platform_post_id: string | null
+  /** Legacy column from the 8/31 Instagram path; never written anymore. */
   ig_container_id: string | null
   status: PostStatus
   last_error: string | null
@@ -84,32 +93,32 @@ export const IG_MAX_MENTIONS = 20
 export const CAROUSEL_MIN = 2
 export const CAROUSEL_MAX = 10
 
-// Scheduling windows, measured from the moment the Meta call is made.
-//   publish-now  scheduled_at missing, past, or within 2 minutes: post now.
-//   cron         2–20 minutes out (either platform), Instagram at any future
-//                time, Facebook past the native ceiling: our 5-minute cron
-//                honours the chosen time.
-//   fb-native    Facebook, 20 minutes – 29 days out: Meta holds the post.
-// Meta documents the native window as 10 minutes – 30 days, but the Help
-// Center and real (#100) "scheduled publish time is invalid" errors put the
-// effective floor at ~20 minutes and the ceiling at 29 days, so both edges
-// carry a margin. Media prep can take tens of seconds, so callers compute the
-// mode AFTER preparing media, with a fresh `now`.
-export const PUBLISH_NOW_WINDOW_MS = 2 * 60 * 1000
+// The only scheduling window, measured from the moment the Meta call is made:
+// Facebook holds a scheduled post 20 minutes – 29 days out. Meta documents
+// 10 minutes – 30 days, but the Help Center and real (#100) "scheduled publish
+// time is invalid" errors put the effective floor at ~20 minutes and the
+// ceiling at 29 days, so both edges carry a margin. Anything outside the
+// window is refused: there is no publish-now and no cron fallback, because
+// nothing may reach Meta except as a scheduled post Joseph can still review.
+// Media prep can take tens of seconds, so callers compute the mode AFTER
+// preparing media, with a fresh `now`.
 export const FB_NATIVE_MIN_MS = 20 * 60 * 1000
 export const FB_NATIVE_MAX_MS = 29 * 24 * 60 * 60 * 1000
 
-// Transient Meta failures retry this many times before the row parks in 'failed'.
-export const MAX_ATTEMPTS = 3
+export const OUT_OF_WINDOW_MESSAGE =
+  'Pick a time between 20 minutes and 29 days from now — posts are always scheduled for your review in Business Suite, never posted immediately'
 
-// A row still 'publishing' this long after its last write was claimed by a
-// function that has since been killed (route cap 120 s, cron cap 300 s). The
-// cron sweeps it to 'failed' so Retry appears on /m.
+export const INSTAGRAM_NOT_SUPPORTED_MESSAGE =
+  'Instagram has no scheduling API — schedule it by hand in Business Suite, then Mark posted here'
+
+// A row still 'publishing' this long after its last write was claimed by an
+// approve request that has since been killed (route cap 120 s). The cron
+// sweeps it to 'failed' so Retry appears on /m.
 export const STALE_PUBLISHING_MS = 15 * 60 * 1000
 
 export const BUSINESS_TIMEZONE = 'America/Chicago'
 
-export type ScheduleMode = 'fb-native' | 'publish-now' | 'cron'
+export type ScheduleMode = 'fb-native' | 'out-of-window'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -134,10 +143,9 @@ export function isVideoType(contentType: string): boolean {
 
 /**
  * What kind of post a selection of files makes. Images become a single photo
- * or a 2–10 carousel; one video is a video post (FB video / IG reel). Mixed
- * video+images and multiple videos are rejected outright: Meta has no
- * mixed-media single post that both platforms accept, and one clip per post
- * is the v1 rule.
+ * or a 2–10 carousel; one video is a video post. Mixed video+images and
+ * multiple videos are rejected outright: Meta has no mixed-media single post,
+ * and one clip per post is the v1 rule.
  */
 export function mediaKind(files: MediaItem[]): Result<PostType> {
   if (!Array.isArray(files) || files.length === 0) {
@@ -209,9 +217,10 @@ function zoneOffsetMs(date: Date, timeZone: string): number {
 }
 
 /**
- * One draft per platform for one "Queue for posting" tap. All copies share
- * group_id so the queue can show them as one action. Caller supplies the
- * group id (randomUUID) to keep this pure.
+ * One draft per platform for one "Queue for posting" tap. Only Facebook is
+ * accepted (see PUBLISH_PLATFORMS); the shape stays a list so the row
+ * contract with the route/UI is unchanged. Caller supplies the group id
+ * (randomUUID) to keep this pure.
  */
 export function buildDraftPosts(
   selection: MediaItem[],
@@ -223,11 +232,14 @@ export function buildDraftPosts(
   if (!kind.ok) return kind
 
   if (!Array.isArray(platforms) || platforms.length === 0) {
-    return { ok: false, error: 'Pick Facebook, Instagram, or both' }
+    return { ok: false, error: 'Pick Facebook' }
   }
   const unique: Platform[] = []
   for (const p of platforms) {
     if (!isPlatform(p)) return { ok: false, error: 'Unknown platform' }
+    if (!(PUBLISH_PLATFORMS as readonly string[]).includes(p)) {
+      return { ok: false, error: `Only Facebook can be queued here. ${INSTAGRAM_NOT_SUPPORTED_MESSAGE}` }
+    }
     if (!unique.includes(p)) unique.push(p)
   }
 
@@ -316,26 +328,17 @@ export function parseScheduledAt(raw: unknown): Result<Date | null> {
 }
 
 /**
- * How an approved post reaches the platform.
- *   publish-now  scheduled_at missing, past, or under 2 minutes out
- *   fb-native    Facebook, 20 min – 29 days out: Meta holds the scheduled post
- *   cron         everything else: 2–20 min out on either platform, Instagram
- *                at any future time, Facebook past the 29-day ceiling
+ * Whether an approved post can be handed to Meta as a scheduled post.
+ *   fb-native      20 min – 29 days out: Meta holds the scheduled post
+ *   out-of-window  no time, past, under 20 min, or beyond 29 days: refused
+ *                  with OUT_OF_WINDOW_MESSAGE. Never published immediately,
+ *                  never left for a cron.
  */
-export function scheduleMode(scheduledAt: Date | null, now: Date, platform: Platform): ScheduleMode {
-  if (!scheduledAt) return 'publish-now'
+export function scheduleMode(scheduledAt: Date | null, now: Date): ScheduleMode {
+  if (!scheduledAt) return 'out-of-window'
   const delta = scheduledAt.getTime() - now.getTime()
-  if (delta < PUBLISH_NOW_WINDOW_MS) return 'publish-now'
-  if (platform === 'facebook' && delta >= FB_NATIVE_MIN_MS && delta <= FB_NATIVE_MAX_MS) return 'fb-native'
-  return 'cron'
-}
-
-/** Cron pick predicate: approved and its time has come (or it never had one). */
-export function isDue(post: Pick<SocialPost, 'status' | 'scheduled_at'>, now: Date): boolean {
-  if (post.status !== 'approved') return false
-  if (!post.scheduled_at) return true
-  const t = Date.parse(post.scheduled_at)
-  return !Number.isNaN(t) && t <= now.getTime()
+  if (delta >= FB_NATIVE_MIN_MS && delta <= FB_NATIVE_MAX_MS) return 'fb-native'
+  return 'out-of-window'
 }
 
 export type PostEvent =
@@ -343,25 +346,22 @@ export type PostEvent =
   | 'approve' // Joseph's review gate
   | 'fb_scheduled' // Meta accepted the scheduled post
   | 'unapprove' // back to draft before it goes live
-  | 'claim' // cron compare-and-swap
-  | 'published'
+  | 'published' // the cron saw Meta publish the held post
   | 'fail'
-  | 'retry' // transient failure, attempts remain
   | 'delete'
 
 const TRANSITIONS: Record<PostEvent, Partial<Record<PostStatus, PostStatus>>> = {
   update: { draft: 'draft', failed: 'draft' },
+  // The approve route claims straight into 'publishing' (compare-and-swap)
+  // before the Meta scheduling call, so a crash mid-call leaves a visible
+  // 'publishing' row (swept to 'failed' after 15 min) rather than a draft
+  // that could be approved a second time. 'approved' as a resting state is
+  // legacy; this event only gates which rows may be approved.
   approve: { draft: 'approved', failed: 'approved' },
-  // The approve route claims into 'publishing' before the Meta scheduling
-  // call, so a crash mid-call leaves a visible 'publishing' row rather than
-  // an 'approved' one the cron would publish a second time.
   fb_scheduled: { approved: 'scheduled', publishing: 'scheduled' },
   unapprove: { approved: 'draft', scheduled: 'draft' },
-  claim: { approved: 'publishing' },
-  published: { publishing: 'published', scheduled: 'published' },
-  // 'approved' fails when the approve-time Meta call (FB schedule / publish-now) is rejected.
-  fail: { approved: 'failed', publishing: 'failed', scheduled: 'failed' },
-  retry: { publishing: 'approved' },
+  published: { scheduled: 'published' },
+  fail: { publishing: 'failed' },
   delete: { draft: 'cancelled', failed: 'cancelled', approved: 'cancelled', scheduled: 'cancelled' },
 }
 
@@ -370,17 +370,16 @@ const EVENT_LABELS: Record<PostEvent, string> = {
   approve: 'approve',
   fb_scheduled: 'schedule',
   unapprove: 'unapprove',
-  claim: 'claim',
   published: 'mark published',
   fail: 'fail',
-  retry: 'retry',
   delete: 'delete',
 }
 
 /**
  * State machine. Returns the next status or a human-readable refusal.
  * 'publishing' is deliberately a dead end for user events: a row that is
- * mid-publish can only be finished by the cron that claimed it.
+ * mid-schedule can only be finished by the request that claimed it (or the
+ * stale sweep).
  */
 export function transition(
   post: Pick<SocialPost, 'status'>,
@@ -393,26 +392,21 @@ export function transition(
   return { ok: true, value: next }
 }
 
-/** After a publish failure: retry (back to approved) or park in failed. */
-export function failureOutcome(
-  post: Pick<SocialPost, 'status' | 'attempts'>,
-  transient: boolean
-): Result<PostStatus> {
-  if (transient && post.attempts < MAX_ATTEMPTS) return transition(post, 'retry')
-  return transition(post, 'fail')
-}
-
-/** Which user buttons the /m page shows for a row. */
-export function allowedActions(post: Pick<SocialPost, 'status'>): {
+/**
+ * Which user buttons the /m page shows for a row. Instagram rows (legacy)
+ * are read-only apart from Delete: nothing can be scheduled for them.
+ */
+export function allowedActions(post: Pick<SocialPost, 'status' | 'platform'>): {
   edit: boolean
   approve: boolean
   unapprove: boolean
   delete: boolean
 } {
+  const publishable = (PUBLISH_PLATFORMS as readonly string[]).includes(post.platform)
   return {
-    edit: transition(post, 'update').ok,
-    approve: transition(post, 'approve').ok,
-    unapprove: transition(post, 'unapprove').ok,
+    edit: publishable && transition(post, 'update').ok,
+    approve: publishable && transition(post, 'approve').ok,
+    unapprove: publishable && transition(post, 'unapprove').ok,
     delete: transition(post, 'delete').ok,
   }
 }

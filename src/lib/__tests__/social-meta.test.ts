@@ -1,18 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   debugToken,
-  fbPublishPhotoPost,
-  fbPublishVideo,
   fbSchedulePhotoPost,
   fbGetPost,
   GRAPH_VERSION,
-  igCreateCarousel,
-  igCreateImageContainer,
-  igCreateReel,
-  igPublish,
-  igPublishingLimit,
-  igResolveUserId,
-  igWaitForContainer,
   isMetaObjectMissing,
   isTransientMetaError,
   MetaApiError,
@@ -55,18 +46,20 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const when = new Date('2026-09-01T14:00:00Z')
+const unix = 1788271200
+
 describe('graph transport', () => {
   it('pins the API version and carries the token ONLY in the Authorization header', async () => {
-    queue(reply(200, { id: '1', post_id: `${PAGE}_1` }))
-    await fbPublishPhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'hi' })
-    const c = calls[0]
-    expect(c.url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}/photos`)
-    expect(c.url.toString()).not.toContain(TOKEN)
-    expect(c.body?.has('access_token')).toBe(false)
-    expect(c.auth).toBe(`Bearer ${TOKEN}`)
-    expect(c.body?.get('url')).toBe('https://x/a.jpg')
-    expect(c.body?.get('caption')).toBe('hi')
-    expect(c.body?.has('published')).toBe(false)
+    queue(reply(200, { id: '1' }), reply(200, { id: `${PAGE}_1` }), reply(200, { id: `${PAGE}_1`, scheduled_publish_time: unix }))
+    await fbSchedulePhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'hi', scheduledAt: when })
+    for (const c of calls) {
+      expect(c.url.toString()).not.toContain(TOKEN)
+      expect(c.body?.has('access_token') ?? false).toBe(false)
+      expect(c.auth).toBe(`Bearer ${TOKEN}`)
+    }
+    expect(calls[0].url.pathname).toBe(`/${GRAPH_VERSION}/${PAGE}/photos`)
+    expect(calls[0].body?.get('url')).toBe('https://x/a.jpg')
   })
 
   it('turns a Graph error payload into a typed MetaApiError without the token', async () => {
@@ -75,7 +68,7 @@ describe('graph transport', () => {
         error: { message: 'Invalid OAuth access token.', type: 'OAuthException', code: 190, error_subcode: 463, fbtrace_id: 'abc' },
       })
     )
-    const err = await fbPublishPhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'hi' }).catch(
+    const err = await fbSchedulePhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'hi', scheduledAt: when }).catch(
       (e) => e
     )
     expect(err).toBeInstanceOf(MetaApiError)
@@ -97,12 +90,45 @@ describe('graph transport', () => {
     expect(isTransientMetaError(new TypeError('fetch failed'))).toBe(true)
     expect(isTransientMetaError(new MetaScheduleMismatchError('p', 1, 2))).toBe(false)
   })
+
+  it('exposes no publish-now helper: every FB create in this module is a scheduled post', async () => {
+    const meta = await import('../social/meta')
+    const names = Object.keys(meta)
+    expect(names).not.toContain('fbPublishPhotoPost')
+    expect(names).not.toContain('fbPublishVideo')
+    expect(names).not.toContain('igPublish')
+    expect(names).not.toContain('igCreateImageContainer')
+    expect(names).not.toContain('igCreateReel')
+    expect(names).not.toContain('igCreateCarousel')
+    expect(names).not.toContain('igResolveUserId')
+    // The raw transport is module-private: nothing outside can POST an
+    // arbitrary edge.
+    expect(names).not.toContain('graph')
+    expect(names).toContain('fbSchedulePhotoPost')
+    expect(names).toContain('fbScheduleVideo')
+  })
+
+  it('the transport itself refuses a live-publishing POST before any network call', async () => {
+    const { assertScheduleOnly } = await import('../social/meta')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi', published: true })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/photos`, { url: 'https://x/a.jpg' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${PAGE}/videos`, { file_url: 'https://x/v.mp4' })).toThrow(/publish live/)
+    expect(() => assertScheduleOnly('POST', `${IG}/media`, { image_url: 'https://x/a.jpg' })).toThrow(/Instagram/)
+    expect(() => assertScheduleOnly('POST', `${IG}/media_publish`, { creation_id: '1', published: false })).toThrow(/Instagram/)
+    // What the scheduling helpers actually send is allowed; reads and deletes always are.
+    expect(() => assertScheduleOnly('POST', `${PAGE}/photos`, { url: 'x', published: false, temporary: true })).not.toThrow()
+    expect(() => assertScheduleOnly('POST', `${PAGE}/feed`, { message: 'hi', published: false, scheduled_publish_time: unix })).not.toThrow()
+    expect(() => assertScheduleOnly('POST', `${PAGE}/videos`, { file_url: 'x', published: false, scheduled_publish_time: unix })).not.toThrow()
+    expect(() => assertScheduleOnly('GET', `${PAGE}/feed`, {})).not.toThrow()
+    expect(() => assertScheduleOnly('DELETE', `${PAGE}_1`, {})).not.toThrow()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('fbSchedulePhotoPost', () => {
-  const when = new Date('2026-09-01T14:00:00Z')
-  const unix = 1788271200
-
   it('single photo: temporary unpublished upload, scheduled /feed post, then reads the post back', async () => {
     queue(
       reply(200, { id: '900' }),
@@ -202,112 +228,27 @@ describe('fbSchedulePhotoPost', () => {
     expect(JSON.parse(feed.body?.get('attached_media[0]') ?? '')).toEqual({ media_fbid: 'p1' })
     expect(JSON.parse(feed.body?.get('attached_media[1]') ?? '')).toEqual({ media_fbid: 'p2' })
   })
-})
 
-describe('fbPublishPhotoPost (multi)', () => {
-  it('unpublished uploads without temporary, then a published /feed post', async () => {
-    queue(reply(200, { id: 'p1' }), reply(200, { id: 'p2' }), reply(200, { id: `${PAGE}_f` }))
-    const out = await fbPublishPhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg', 'https://x/b.jpg'], caption: 'Now' })
-    expect(out.postId).toBe(`${PAGE}_f`)
-    expect(calls[0].body?.has('temporary')).toBe(false)
-    expect(calls[2].body?.has('published')).toBe(false)
-    expect(calls[2].body?.has('scheduled_publish_time')).toBe(false)
-  })
-})
-
-describe('Instagram', () => {
-  it('resolves the IG user id from the page', async () => {
-    queue(reply(200, { instagram_business_account: { id: IG }, id: PAGE }))
-    expect(await igResolveUserId({ token: TOKEN, pageId: PAGE })).toBe(IG)
-    expect(calls[0].url.searchParams.get('fields')).toContain('instagram_business_account')
-    queue(reply(200, { id: PAGE }))
-    expect(await igResolveUserId({ token: TOKEN, pageId: PAGE })).toBeNull()
-  })
-
-  it('single image container carries image_url + caption, no media_type', async () => {
-    queue(reply(200, { id: 'c1' }))
-    expect(await igCreateImageContainer({ token: TOKEN, igUserId: IG, imageUrl: 'https://x/a.jpg', caption: 'Cap' })).toBe('c1')
-    const b = calls[0].body!
-    expect(calls[0].url.pathname).toBe(`/${GRAPH_VERSION}/${IG}/media`)
-    expect(b.get('image_url')).toBe('https://x/a.jpg')
-    expect(b.get('caption')).toBe('Cap')
-    expect(b.has('media_type')).toBe(false)
-    expect(b.has('is_carousel_item')).toBe(false)
-  })
-
-  it('carousel: children flagged is_carousel_item, parent media_type=CAROUSEL with comma ids', async () => {
-    queue(reply(200, { id: 'k1' }), reply(200, { id: 'k2' }), reply(200, { id: 'parent' }))
-    const k1 = await igCreateImageContainer({ token: TOKEN, igUserId: IG, imageUrl: 'https://x/a.jpg', isCarouselItem: true })
-    const k2 = await igCreateImageContainer({ token: TOKEN, igUserId: IG, imageUrl: 'https://x/b.jpg', isCarouselItem: true })
-    const parent = await igCreateCarousel({ token: TOKEN, igUserId: IG, children: [k1, k2], caption: 'Carousel' })
-    expect(parent).toBe('parent')
-    expect(calls[0].body?.get('is_carousel_item')).toBe('true')
-    expect(calls[0].body?.has('caption')).toBe(false)
-    expect(calls[2].body?.get('media_type')).toBe('CAROUSEL')
-    expect(calls[2].body?.get('children')).toBe('k1,k2')
-    expect(calls[2].body?.get('caption')).toBe('Carousel')
-    await expect(igCreateCarousel({ token: TOKEN, igUserId: IG, children: ['k1'], caption: 'x' })).rejects.toThrow(/2–10/)
-  })
-
-  it('reel container uses media_type=REELS + video_url', async () => {
-    queue(reply(200, { id: 'r1' }))
-    await igCreateReel({ token: TOKEN, igUserId: IG, videoUrl: 'https://x/v.mp4', caption: 'Reel' })
-    expect(calls[0].body?.get('media_type')).toBe('REELS')
-    expect(calls[0].body?.get('video_url')).toBe('https://x/v.mp4')
-    expect(calls[0].body?.get('share_to_feed')).toBe('true')
-  })
-
-  it('polls container status until FINISHED, sleeping between polls', async () => {
-    queue(
-      reply(200, { status_code: 'IN_PROGRESS', id: 'c1' }),
-      reply(200, { status_code: 'IN_PROGRESS', id: 'c1' }),
-      reply(200, { status_code: 'FINISHED', id: 'c1' })
-    )
-    const sleep = vi.fn(async () => {})
-    const out = await igWaitForContainer({ token: TOKEN, containerId: 'c1', sleep, intervalMs: 5 })
-    expect(out.statusCode).toBe('FINISHED')
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(sleep).toHaveBeenCalledTimes(2)
-    expect(calls[0].url.searchParams.get('fields')).toBe('status_code,status')
-  })
-
-  it('ERROR status throws a permanent MetaApiError carrying the subcode', async () => {
-    queue(reply(200, { status_code: 'ERROR', status: '2207026', id: 'c1' }))
-    const err = await igWaitForContainer({ token: TOKEN, containerId: 'c1', sleep: async () => {} }).catch((e) => e)
-    expect(err).toBeInstanceOf(MetaApiError)
-    expect(err.subcode).toBe(2207026)
-    expect(err.transient).toBe(false)
-  })
-
-  it('timeout throws the transient not-ready error so the cron retries', async () => {
-    queue(reply(200, { status_code: 'IN_PROGRESS' }), reply(200, { status_code: 'IN_PROGRESS' }))
-    let clock = 0
-    const sleep = vi.fn(async () => {
-      clock += 100_000
-    })
-    const realNow = Date.now
-    Date.now = () => 1_000_000 + clock
-    try {
-      const err = await igWaitForContainer({ token: TOKEN, containerId: 'c1', sleep, maxWaitMs: 60_000 }).catch((e) => e)
-      expect(err).toBeInstanceOf(MetaApiError)
-      expect(err.code).toBe(9007)
-      expect(err.transient).toBe(true)
-    } finally {
-      Date.now = realNow
+  it('every POST that creates content carries published=false (never a live post)', async () => {
+    queue(reply(200, { id: 'p1' }), reply(200, { id: `${PAGE}_x` }), reply(200, { id: `${PAGE}_x`, scheduled_publish_time: unix }))
+    await fbSchedulePhotoPost({ token: TOKEN, pageId: PAGE, imageUrls: ['https://x/a.jpg'], caption: 'c', scheduledAt: when })
+    for (const c of calls.filter((c) => c.method === 'POST')) {
+      expect(c.body?.get('published')).toBe('false')
     }
   })
+})
 
-  it('publishes with creation_id and reads the publishing limit', async () => {
-    queue(reply(200, { id: 'media1' }), reply(200, { data: [{ quota_usage: 3, config: { quota_total: 100 } }] }))
-    expect(await igPublish({ token: TOKEN, igUserId: IG, creationId: 'c1' })).toBe('media1')
-    expect(calls[0].url.pathname).toBe(`/${GRAPH_VERSION}/${IG}/media_publish`)
-    expect(calls[0].body?.get('creation_id')).toBe('c1')
-    expect(await igPublishingLimit({ token: TOKEN, igUserId: IG })).toEqual({ quotaUsage: 3, quotaTotal: 100 })
+describe('fbGetPost', () => {
+  it('reads is_published and the scheduled time', async () => {
+    queue(reply(200, { id: 'p', is_published: false, scheduled_publish_time: unix, permalink_url: 'https://fb/p' }))
+    const state = await fbGetPost({ token: TOKEN, postId: 'p' })
+    expect(state).toEqual({ id: 'p', isPublished: false, scheduledPublishTime: unix, permalinkUrl: 'https://fb/p' })
+    expect(isMetaObjectMissing(new MetaApiError(404, null, 'x'))).toBe(true)
   })
 })
 
 describe('debugToken', () => {
-  it('uses the app token and maps the summary', async () => {
+  it('uses the app token and maps the summary (profile_id included)', async () => {
     queue(
       reply(200, {
         data: { is_valid: true, type: 'PAGE', app_id: 'app1', expires_at: 0, scopes: ['pages_manage_posts'], profile_id: PAGE },
@@ -317,8 +258,22 @@ describe('debugToken', () => {
     expect(info.isValid).toBe(true)
     expect(info.expiresAt).toBeNull()
     expect(info.scopes).toEqual(['pages_manage_posts'])
+    expect(info.profileId).toBe(PAGE)
     expect(calls[0].url.searchParams.has('access_token')).toBe(false)
     expect(calls[0].auth).toBe('Bearer app1|shh')
+    // The inspected token has to ride as input_token (Graph has no other
+    // way); it is the app token that must stay out of the URL. Sentry
+    // records no span for /debug_token (src/lib/sentry-scrub.ts).
     expect(calls[0].url.searchParams.get('input_token')).toBe(TOKEN)
+    expect(calls[0].url.toString()).not.toContain('app1|shh')
+    expect(calls[0].url.toString()).not.toContain('app1%7Cshh')
+  })
+
+  it('a failed debug_token never puts either token in the error message', async () => {
+    queue(reply(400, { error: { message: 'Invalid appsecret', code: 190 } }))
+    const err = await debugToken({ token: TOKEN, appId: 'app1', appSecret: 'shh' }).catch((e) => e)
+    expect(err).toBeInstanceOf(MetaApiError)
+    expect(err.message).not.toContain(TOKEN)
+    expect(err.message).not.toContain('shh')
   })
 })

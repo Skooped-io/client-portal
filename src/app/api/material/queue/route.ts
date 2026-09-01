@@ -2,23 +2,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { portal } from '@/lib/logger'
-import { buildDraftPosts, CAROUSEL_MAX, type MediaItem } from '@/lib/social/queue'
+import {
+  buildDraftPosts,
+  CAROUSEL_MAX,
+  INSTAGRAM_NOT_SUPPORTED_MESSAGE,
+  PUBLISH_PLATFORMS,
+  type MediaItem,
+} from '@/lib/social/queue'
 import { POST_COLUMNS, resolveMaterialOrg } from '@/lib/social/service'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MAX_PATH_LENGTH = 512
+const FACEBOOK_ONLY = `Only Facebook can be queued here. ${INSTAGRAM_NOT_SUPPORTED_MESSAGE}`
 
 /**
  * POST /api/material/queue
  *
  * Token-scoped (organizations.material_token). Turns a selection on the /m
- * page into DRAFT social_posts rows — one per platform, sharing a group_id.
- * Nothing is sent to Meta here; drafts wait for Joseph's approve on the same
- * page (/api/material/post).
+ * page into a DRAFT social_posts row. Nothing is sent to Meta here; drafts
+ * wait for Joseph's approve on the same page (/api/material/post), which
+ * creates a Meta-held SCHEDULED post.
  *
- * Body: { token: string, paths: string[], platforms: ('facebook'|'instagram')[] }
+ * Facebook only: Instagram has no scheduling API, so it is scheduled by hand
+ * in Business Suite and the file marked posted on /m.
+ *
+ * Body: { token: string, paths: string[], platforms: ['facebook'] }
  * Response: { posts: SocialPost[] }
  */
 export async function POST(request: NextRequest) {
@@ -51,8 +61,12 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
-  if (!Array.isArray(platforms) || platforms.length === 0) {
-    return NextResponse.json({ error: 'Pick Facebook, Instagram, or both' }, { status: 400 })
+  if (
+    !Array.isArray(platforms) ||
+    platforms.length === 0 ||
+    platforms.some((p) => !(PUBLISH_PLATFORMS as readonly unknown[]).includes(p))
+  ) {
+    return NextResponse.json({ error: FACEBOOK_ONLY }, { status: 400 })
   }
 
   const admin = createAdminClient()

@@ -1,30 +1,34 @@
 /**
- * Connect (upsert) a Facebook Page or Instagram account for a client org so
- * the social publisher can post to it.
+ * Connect (upsert) a client org's Facebook Page so the social publisher can
+ * SCHEDULE posts on it (product rule 2026-09-01: Skooped only ever schedules;
+ * Joseph reviews in Business Suite Planner and Meta publishes). Facebook
+ * only — Instagram has no scheduling API and is not part of the publisher,
+ * so this script refuses to mint a token row for it.
  *
  *   SUPABASE_DB_URL="postgresql://..." TOKEN_ENCRYPTION_KEY=<64 hex> \
- *   npm run social-account -- <org-slug> <facebook|instagram> \
- *       --external-id <page-id | ig-user-id> [--page-id <page-id>] \
- *       --token-file <path> [--name "<display name>"]
+ *   npm run social-account -- <org-slug> facebook \
+ *       --external-id <page-id> --token-file <path> [--name "<display name>"]
  *
  * The token is read from a FILE, never from argv (argv lands in shell
- * history and process listings). Use a long-lived PAGE access token from a
- * user with the CREATE_CONTENT task on the Page; the Instagram row uses the
- * same Page token (IG publishes through the linked Page). For instagram,
- * --external-id may be omitted when --page-id is given: the IG user id is
- * resolved from the Page (instagram_business_account).
+ * history and process listings); delete the file afterwards. Use a
+ * long-lived PAGE access token from a user with the CREATE_CONTENT task on
+ * the Page (pages_manage_posts, pages_read_engagement, pages_show_list).
  *
  * If META_APP_ID + META_APP_SECRET are set, the token is inspected with
- * /debug_token and its expiry is stored; the summary is printed either way.
- * Nothing is posted. SUPABASE_DB_URL lives where migrations expect it; see
- * scripts/apply-sql.ts. Idempotent: re-running replaces the stored token.
+ * /debug_token, its expiry is stored and its profile_id must match the Page
+ * id; the summary is printed either way. Nothing is posted. SUPABASE_DB_URL
+ * lives where migrations expect it; see scripts/apply-sql.ts. Idempotent:
+ * re-running replaces the stored token. The deployed equivalent is
+ * POST /api/admin/social-account (docs/social-publisher.md).
  */
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { Client } from 'pg'
 import { encrypt } from '../src/lib/crypto'
-import { debugToken, igResolveUserId } from '../src/lib/social/meta'
+import { debugToken } from '../src/lib/social/meta'
+
+const NUMERIC_ID = /^\d{1,32}$/
 
 function fail(message: string): never {
   console.error(`\n✗ ${message}\n`)
@@ -43,20 +47,17 @@ async function main() {
   const args = process.argv.slice(2)
   const positional = args.filter((a, i) => !a.startsWith('--') && (i === 0 || !args[i - 1].startsWith('--')))
   const [slug, platform] = positional
-  const externalIdArg = flag(args, '--external-id')
-  const pageId = flag(args, '--page-id')
+  const externalId = flag(args, '--external-id')
   const tokenFile = flag(args, '--token-file')
   const name = flag(args, '--name')
 
-  if (!slug || !platform || !tokenFile) {
-    fail(
-      'Usage: npm run social-account -- <org-slug> <facebook|instagram> --external-id <id> [--page-id <id>] --token-file <path> [--name <display>]'
-    )
+  if (!slug || !platform || !tokenFile || !externalId) {
+    fail('Usage: npm run social-account -- <org-slug> facebook --external-id <page-id> --token-file <path> [--name <display>]')
   }
-  if (platform !== 'facebook' && platform !== 'instagram') fail('platform must be facebook or instagram')
-  if (!externalIdArg && !(platform === 'instagram' && pageId)) {
-    fail('--external-id is required (for instagram you may pass --page-id instead and it will be resolved)')
+  if (platform !== 'facebook') {
+    fail('platform must be facebook (Instagram is scheduled by hand in Business Suite; the publisher never posts to it)')
   }
+  if (!NUMERIC_ID.test(externalId)) fail('--external-id must be the numeric Facebook Page id')
   if (!process.env.TOKEN_ENCRYPTION_KEY) fail('TOKEN_ENCRYPTION_KEY is not set (same value as the Vercel env)')
   const dbUrl = process.env.SUPABASE_DB_URL
   if (!dbUrl) fail('SUPABASE_DB_URL is not set (see scripts/apply-sql.ts header for where it lives)')
@@ -68,13 +69,7 @@ async function main() {
     fail(`Could not read token file ${tokenFile}`)
   }
   if (token.length < 20) fail('Token file looks empty')
-
-  let externalId = externalIdArg
-  if (!externalId && platform === 'instagram' && pageId) {
-    externalId = (await igResolveUserId({ token, pageId })) ?? undefined
-    if (!externalId) fail(`Page ${pageId} has no linked Instagram business account`)
-    console.log(`✓ Resolved Instagram user id ${externalId} from Page ${pageId}`)
-  }
+  if (token.length > 1024) fail('Token file does not look like a Page token (too long)')
 
   let expiresAt: Date | null = null
   const appId = process.env.META_APP_ID
@@ -87,11 +82,14 @@ async function main() {
     console.log(`  app_id:     ${info.appId ?? '?'}${info.appId && info.appId !== appId ? '  ⚠ not this app' : ''}`)
     console.log(`  expires:    ${info.expiresAt ? info.expiresAt.toISOString() : 'never'}`)
     console.log(`  scopes:     ${info.scopes.join(', ') || '(none)'}`)
+    console.log(`  profile_id: ${info.profileId ?? '?'}`)
     const need = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list']
-    if (platform === 'instagram') need.push('instagram_basic', 'instagram_content_publish')
     const missing = need.filter((s) => !info.scopes.includes(s))
     if (missing.length) console.log(`  ⚠ missing:  ${missing.join(', ')}`)
     if (!info.isValid) fail('Token is not valid; nothing stored')
+    if (info.profileId && info.profileId !== externalId) {
+      fail(`Token belongs to Page ${info.profileId}, not ${externalId}; nothing stored`)
+    }
     expiresAt = info.expiresAt
   } else {
     console.log('(META_APP_ID/META_APP_SECRET not set — skipping debug_token)')
@@ -115,17 +113,9 @@ async function main() {
          access_token_enc = EXCLUDED.access_token_enc,
          token_expires_at = EXCLUDED.token_expires_at,
          updated_at = now()`,
-      [
-        org.id,
-        platform,
-        externalId,
-        platform === 'instagram' ? (pageId ?? null) : null,
-        name ?? null,
-        encrypt(token),
-        expiresAt ? expiresAt.toISOString() : null,
-      ]
+      [org.id, platform, externalId, null, name ?? null, encrypt(token), expiresAt ? expiresAt.toISOString() : null]
     )
-    console.log(`✓ ${platform} account ${externalId} stored for ${org.name}`)
+    console.log(`✓ facebook Page ${externalId} stored for ${org.name}`)
   } finally {
     await client.end()
   }

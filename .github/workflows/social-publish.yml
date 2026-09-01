@@ -1,12 +1,17 @@
 name: social-publish
 
-# Drives /api/cron/social-publish every 5 minutes. Vercel Hobby only allows
-# once-a-day crons (a */5 entry in vercel.json fails the whole deploy), so
-# the 5-minute tick lives here; vercel.json keeps a once-daily safety sweep.
-# The route authenticates by Bearer CRON_SECRET (same value as the Vercel
-# env var) — the repository secret is named SOCIAL_CRON_SECRET (value = Vercel env SOCIAL_CRON_SECRET).
+# Ticks /api/cron/social-publish every 5 minutes. The tick only RECONCILES:
+# it reads Meta-held scheduled Facebook posts back and marks rows
+# published/cancelled, and sweeps stuck rows. It never creates or publishes
+# anything (product rule 2026-09-01: Skooped only ever schedules; Joseph
+# reviews in Business Suite and Meta publishes).
+# Vercel Hobby only allows once-a-day crons (a */5 entry in vercel.json fails
+# the whole deploy), so the 5-minute tick lives here; vercel.json keeps a
+# once-daily safety sweep of the same reconciliation.
+# The route authenticates by Bearer CRON_SECRET or SOCIAL_CRON_SECRET — the
+# repository secret is named SOCIAL_CRON_SECRET (value = Vercel env SOCIAL_CRON_SECRET).
 # GitHub may delay or skip a scheduled run under load; the route is
-# idempotent (compare-and-swap claims), so overlapping or late ticks are safe.
+# idempotent (read-only against Meta), so overlapping or late ticks are safe.
 
 on:
   schedule:
@@ -31,7 +36,7 @@ jobs:
         run: |
           set -u
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET secret is not set on this repository" >&2
+            echo "SOCIAL_CRON_SECRET repository secret is not set" >&2
             exit 1
           fi
           curl -fsS --max-time 310 \

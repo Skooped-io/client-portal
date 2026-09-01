@@ -7,14 +7,12 @@ import {
   countHashtags,
   countMentions,
   defaultScheduleAt,
-  failureOutcome,
   FB_NATIVE_MAX_MS,
   FB_NATIVE_MIN_MS,
-  isDue,
-  MAX_ATTEMPTS,
   mediaKind,
+  OUT_OF_WINDOW_MESSAGE,
   parseScheduledAt,
-  PUBLISH_NOW_WINDOW_MS,
+  PUBLISH_PLATFORMS,
   scheduleMode,
   transition,
   validateCaption,
@@ -60,24 +58,30 @@ describe('defaultScheduleAt', () => {
 })
 
 describe('buildDraftPosts', () => {
-  it('creates one draft per platform sharing group_id, defaulting to tomorrow 9am', () => {
-    const r = buildDraftPosts([jpg(1), jpg(2)], ['facebook', 'instagram'], NOW, 'g1')
+  it('the publisher is Facebook-only', () => {
+    expect(PUBLISH_PLATFORMS).toEqual(['facebook'])
+  })
+  it('creates one Facebook draft defaulting to tomorrow 9am', () => {
+    const r = buildDraftPosts([jpg(1), jpg(2)], ['facebook'], NOW, 'g1')
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.value).toHaveLength(2)
-    expect(r.value.map((d) => d.platform)).toEqual(['facebook', 'instagram'])
-    for (const d of r.value) {
-      expect(d.status).toBe('draft')
-      expect(d.post_type).toBe('carousel')
-      expect(d.group_id).toBe('g1')
-      expect(d.caption).toBeNull()
-      expect(d.scheduled_at).toBe('2026-09-01T14:00:00.000Z')
-      expect(d.media).toEqual([jpg(1), jpg(2)])
-    }
+    expect(r.value).toHaveLength(1)
+    const d = r.value[0]
+    expect(d.platform).toBe('facebook')
+    expect(d.status).toBe('draft')
+    expect(d.post_type).toBe('carousel')
+    expect(d.group_id).toBe('g1')
+    expect(d.caption).toBeNull()
+    expect(d.scheduled_at).toBe('2026-09-01T14:00:00.000Z')
+    expect(d.media).toEqual([jpg(1), jpg(2)])
   })
-  it('dedupes platforms and rejects unknown ones or none', () => {
+  it('dedupes facebook, refuses instagram (alone or with facebook), unknown, none', () => {
     const r = buildDraftPosts([jpg(1)], ['facebook', 'facebook'], NOW, 'g')
     expect(r.ok && r.value.length).toBe(1)
+    const ig = buildDraftPosts([jpg(1)], ['instagram'], NOW, 'g')
+    expect(ig.ok).toBe(false)
+    if (!ig.ok) expect(ig.error).toMatch(/Only Facebook/)
+    expect(buildDraftPosts([jpg(1)], ['facebook', 'instagram'], NOW, 'g').ok).toBe(false)
     expect(buildDraftPosts([jpg(1)], ['tiktok'], NOW, 'g').ok).toBe(false)
     expect(buildDraftPosts([jpg(1)], [], NOW, 'g').ok).toBe(false)
     expect(buildDraftPosts([jpg(1)], 'facebook', NOW, 'g').ok).toBe(false)
@@ -95,7 +99,7 @@ describe('validateCaption', () => {
     expect(validateCaption('   ', 'instagram', { required: false })).toEqual({ ok: true, value: '' })
   })
   it('trims and strips control characters but keeps newlines', () => {
-    const r = validateCaption('  Line one\r\nLine two ', 'facebook')
+    const r = validateCaption('  Line one\r\nLine two ', 'facebook')
     expect(r).toEqual({ ok: true, value: 'Line one\nLine two' })
   })
   it('enforces per-platform length limits', () => {
@@ -156,63 +160,50 @@ describe('parseScheduledAt', () => {
   })
 })
 
-describe('scheduleMode', () => {
+describe('scheduleMode (schedule-only rule)', () => {
   const at = (ms: number) => new Date(NOW.getTime() + ms)
-  it('publishes now when unset, in the past, or under 2 minutes out', () => {
-    expect(scheduleMode(null, NOW, 'facebook')).toBe('publish-now')
-    expect(scheduleMode(at(-1000), NOW, 'instagram')).toBe('publish-now')
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS - 1), NOW, 'facebook')).toBe('publish-now')
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS - 1), NOW, 'instagram')).toBe('publish-now')
+  it('no time, past, or under 20 minutes out is out of window — never publish-now', () => {
+    expect(scheduleMode(null, NOW)).toBe('out-of-window')
+    expect(scheduleMode(at(-1000), NOW)).toBe('out-of-window')
+    expect(scheduleMode(at(0), NOW)).toBe('out-of-window')
+    expect(scheduleMode(at(5 * 60 * 1000), NOW)).toBe('out-of-window')
+    expect(scheduleMode(at(FB_NATIVE_MIN_MS - 1), NOW)).toBe('out-of-window')
   })
-  it('2–20 minutes out is the cron on either platform (Meta floor margin)', () => {
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'facebook')).toBe('cron')
-    expect(scheduleMode(at(10 * 60 * 1000), NOW, 'facebook')).toBe('cron')
-    expect(scheduleMode(at(FB_NATIVE_MIN_MS - 1), NOW, 'facebook')).toBe('cron')
-    expect(scheduleMode(at(PUBLISH_NOW_WINDOW_MS), NOW, 'instagram')).toBe('cron')
-  })
-  it('uses Meta scheduling for Facebook inside 20 min – 29 days', () => {
-    expect(scheduleMode(at(FB_NATIVE_MIN_MS), NOW, 'facebook')).toBe('fb-native')
-    expect(scheduleMode(at(FB_NATIVE_MAX_MS), NOW, 'facebook')).toBe('fb-native')
-    expect(scheduleMode(at(FB_NATIVE_MAX_MS + 1), NOW, 'facebook')).toBe('cron')
+  it('20 minutes – 29 days out is handed to Meta as a scheduled post', () => {
+    expect(scheduleMode(at(FB_NATIVE_MIN_MS), NOW)).toBe('fb-native')
+    expect(scheduleMode(at(2 * 3600 * 1000), NOW)).toBe('fb-native')
+    expect(scheduleMode(at(FB_NATIVE_MAX_MS), NOW)).toBe('fb-native')
     expect(FB_NATIVE_MAX_MS).toBeLessThan(30 * 24 * 60 * 60 * 1000)
   })
-  it('always uses the cron for a future Instagram post', () => {
-    expect(scheduleMode(at(FB_NATIVE_MIN_MS), NOW, 'instagram')).toBe('cron')
-    expect(scheduleMode(at(FB_NATIVE_MAX_MS * 2), NOW, 'instagram')).toBe('cron')
+  it('beyond 29 days is out of window — there is no cron fallback', () => {
+    expect(scheduleMode(at(FB_NATIVE_MAX_MS + 1), NOW)).toBe('out-of-window')
+    expect(scheduleMode(at(60 * 24 * 3600 * 1000), NOW)).toBe('out-of-window')
   })
-})
-
-describe('isDue', () => {
-  it('only approved rows whose time has passed (or was never set)', () => {
-    expect(isDue({ status: 'approved', scheduled_at: '2026-08-31T21:59:00Z' }, NOW)).toBe(true)
-    expect(isDue({ status: 'approved', scheduled_at: NOW.toISOString() }, NOW)).toBe(true)
-    expect(isDue({ status: 'approved', scheduled_at: null }, NOW)).toBe(true)
-    expect(isDue({ status: 'approved', scheduled_at: '2026-08-31T22:01:00Z' }, NOW)).toBe(false)
-    expect(isDue({ status: 'draft', scheduled_at: '2026-08-31T21:59:00Z' }, NOW)).toBe(false)
-    expect(isDue({ status: 'scheduled', scheduled_at: '2026-08-31T21:59:00Z' }, NOW)).toBe(false)
-    expect(isDue({ status: 'approved', scheduled_at: 'garbage' }, NOW)).toBe(false)
+  it('the user-facing refusal names the window and the reason', () => {
+    expect(OUT_OF_WINDOW_MESSAGE).toBe(
+      'Pick a time between 20 minutes and 29 days from now — posts are always scheduled for your review in Business Suite, never posted immediately'
+    )
   })
 })
 
 describe('transition (state machine)', () => {
   const from = (status: PostStatus) => ({ status })
-  it('draft → approved → scheduled/publishing → published', () => {
-    expect(transition(from('draft'), 'approve')).toEqual({ ok: true, value: 'approved' })
-    expect(transition(from('approved'), 'fb_scheduled')).toEqual({ ok: true, value: 'scheduled' })
+  it('draft → (claim) publishing → scheduled → published', () => {
+    expect(transition(from('draft'), 'approve').ok).toBe(true)
     // The approve route claims into 'publishing' before the Meta scheduling call.
     expect(transition(from('publishing'), 'fb_scheduled')).toEqual({ ok: true, value: 'scheduled' })
-    expect(transition(from('approved'), 'claim')).toEqual({ ok: true, value: 'publishing' })
-    expect(transition(from('publishing'), 'published')).toEqual({ ok: true, value: 'published' })
     expect(transition(from('scheduled'), 'published')).toEqual({ ok: true, value: 'published' })
   })
-  it('the review gate: nothing reaches publishing without approve', () => {
-    expect(transition(from('draft'), 'claim').ok).toBe(false)
-    expect(transition(from('draft'), 'published').ok).toBe(false)
+  it('the review gate: nothing is scheduled or published without approve', () => {
     expect(transition(from('draft'), 'fb_scheduled').ok).toBe(false)
+    expect(transition(from('draft'), 'published').ok).toBe(false)
+    // Only a Meta-held post can become published; nothing publishes from 'publishing'.
+    expect(transition(from('publishing'), 'published').ok).toBe(false)
+    expect(transition(from('approved'), 'published').ok).toBe(false)
   })
-  it('unapprove works before it goes live, not after', () => {
-    expect(transition(from('approved'), 'unapprove')).toEqual({ ok: true, value: 'draft' })
+  it('unapprove works while Meta holds it (and on a legacy approved row), not after', () => {
     expect(transition(from('scheduled'), 'unapprove')).toEqual({ ok: true, value: 'draft' })
+    expect(transition(from('approved'), 'unapprove')).toEqual({ ok: true, value: 'draft' })
     expect(transition(from('publishing'), 'unapprove').ok).toBe(false)
     expect(transition(from('published'), 'unapprove').ok).toBe(false)
   })
@@ -220,13 +211,14 @@ describe('transition (state machine)', () => {
     expect(transition(from('draft'), 'update')).toEqual({ ok: true, value: 'draft' })
     expect(transition(from('failed'), 'update')).toEqual({ ok: true, value: 'draft' })
     expect(transition(from('approved'), 'update').ok).toBe(false)
+    expect(transition(from('scheduled'), 'update').ok).toBe(false)
     expect(transition(from('published'), 'update').ok).toBe(false)
   })
   it('publishing is a dead end for user events; published/cancelled are terminal', () => {
     for (const ev of ['update', 'approve', 'unapprove', 'delete'] as const) {
       expect(transition(from('publishing'), ev).ok).toBe(false)
     }
-    for (const ev of ['update', 'approve', 'unapprove', 'delete', 'claim'] as const) {
+    for (const ev of ['update', 'approve', 'unapprove', 'delete', 'fb_scheduled'] as const) {
       expect(transition(from('published'), ev).ok).toBe(false)
       expect(transition(from('cancelled'), ev).ok).toBe(false)
     }
@@ -243,23 +235,21 @@ describe('transition (state machine)', () => {
   })
 })
 
-describe('failureOutcome', () => {
-  it('retries transient failures until MAX_ATTEMPTS, then parks in failed', () => {
-    expect(failureOutcome({ status: 'publishing', attempts: 1 }, true)).toEqual({ ok: true, value: 'approved' })
-    expect(failureOutcome({ status: 'publishing', attempts: MAX_ATTEMPTS - 1 }, true)).toEqual({ ok: true, value: 'approved' })
-    expect(failureOutcome({ status: 'publishing', attempts: MAX_ATTEMPTS }, true)).toEqual({ ok: true, value: 'failed' })
-  })
-  it('never retries a permanent failure', () => {
-    expect(failureOutcome({ status: 'publishing', attempts: 0 }, false)).toEqual({ ok: true, value: 'failed' })
-  })
-})
-
 describe('allowedActions', () => {
-  it('matches the buttons the page shows', () => {
-    expect(allowedActions({ status: 'draft' })).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
-    expect(allowedActions({ status: 'approved' })).toEqual({ edit: false, approve: false, unapprove: true, delete: true })
-    expect(allowedActions({ status: 'scheduled' })).toEqual({ edit: false, approve: false, unapprove: true, delete: true })
-    expect(allowedActions({ status: 'failed' })).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
-    expect(allowedActions({ status: 'published' })).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
+  it('matches the buttons the page shows for Facebook rows', () => {
+    const fb = (status: PostStatus) => ({ status, platform: 'facebook' as const })
+    expect(allowedActions(fb('draft'))).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
+    expect(allowedActions(fb('approved'))).toEqual({ edit: false, approve: false, unapprove: true, delete: true })
+    expect(allowedActions(fb('scheduled'))).toEqual({ edit: false, approve: false, unapprove: true, delete: true })
+    expect(allowedActions(fb('failed'))).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
+    expect(allowedActions(fb('publishing'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
+    expect(allowedActions(fb('published'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
+  })
+  it('legacy Instagram rows are read-only apart from Delete', () => {
+    const ig = (status: PostStatus) => ({ status, platform: 'instagram' as const })
+    expect(allowedActions(ig('draft'))).toEqual({ edit: false, approve: false, unapprove: false, delete: true })
+    expect(allowedActions(ig('approved'))).toEqual({ edit: false, approve: false, unapprove: false, delete: true })
+    expect(allowedActions(ig('failed'))).toEqual({ edit: false, approve: false, unapprove: false, delete: true })
+    expect(allowedActions(ig('published'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
   })
 })

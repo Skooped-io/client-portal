@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fbGetPost,
-  fbPublishVideo,
   fbSchedulePhotoPost,
+  fbScheduleVideo,
   GRAPH_VERSION,
-  igWaitForContainer,
   isMetaObjectMissing,
   MetaApiError,
   MetaScheduleMismatchError,
@@ -96,7 +95,7 @@ describe('schedule read-back edge cases', () => {
     expect(calls).toHaveLength(3)
   })
 
-  it('permanent read-back failure deletes the post and rethrows', async () => {
+  it('permanent read-back failure deletes the post and throws a mismatch that still names the post', async () => {
     queue(
       reply(200, { id: '908' }),
       reply(200, { id: `${PAGE}_908` }),
@@ -104,24 +103,34 @@ describe('schedule read-back edge cases', () => {
       reply(200, { success: true })
     )
     const err = await schedule().catch((e) => e)
-    expect(err.code).toBe(190)
+    expect(err).toBeInstanceOf(MetaScheduleMismatchError)
+    expect(err.postId).toBe(`${PAGE}_908`)
+    expect(err.deleted).toBe(true)
+    expect(err.message).toMatch(/could not be read back .*Invalid OAuth/)
+    expect(err.readBackError).toBeInstanceOf(MetaApiError)
+    expect(err.readBackError.code).toBe(190)
     expect(calls[3].method).toBe('DELETE')
+  })
+
+  it('permanent read-back failure whose delete also fails keeps the id with deleted=false', async () => {
+    queue(
+      reply(200, { id: '909' }),
+      reply(200, { id: `${PAGE}_909` }),
+      reply(400, { error: { message: 'Invalid OAuth access token.', code: 190 } }),
+      reply(400, { error: { message: 'Invalid OAuth access token.', code: 190 } })
+    )
+    const err = await schedule().catch((e) => e)
+    expect(err).toBeInstanceOf(MetaScheduleMismatchError)
+    expect(err.postId).toBe(`${PAGE}_909`)
+    expect(err.deleted).toBe(false)
+    expect(err.message).toContain('delete it from Planner')
   })
 })
 
-describe('fbPublishVideo', () => {
-  it('publish now: one POST, no read-back', async () => {
-    queue(reply(200, { id: 'v1' }))
-    const out = await fbPublishVideo({ token: TOKEN, pageId: PAGE, videoUrl: 'https://x/v.mp4', description: 'clip' })
-    expect(out).toEqual({ videoId: 'v1', scheduledPublishTime: null })
-    expect(calls).toHaveLength(1)
-    expect(calls[0].body?.get('file_url')).toBe('https://x/v.mp4')
-    expect(calls[0].body?.has('published')).toBe(false)
-  })
-
-  it('scheduled: reads the VIDEO node back with `published` (not is_published) and checks the time', async () => {
+describe('fbScheduleVideo', () => {
+  it('always published=false + scheduled_publish_time; reads the VIDEO node back with `published` (not is_published)', async () => {
     queue(reply(200, { id: 'v2' }), reply(200, { id: 'v2', published: false, scheduled_publish_time: unix }))
-    const out = await fbPublishVideo({ token: TOKEN, pageId: PAGE, videoUrl: 'https://x/v.mp4', description: 'clip', scheduledAt: when })
+    const out = await fbScheduleVideo({ token: TOKEN, pageId: PAGE, videoUrl: 'https://x/v.mp4', description: 'clip', scheduledAt: when })
     expect(out.scheduledPublishTime).toBe(unix)
     expect(calls[0].body?.get('published')).toBe('false')
     expect(calls[0].body?.get('scheduled_publish_time')).toBe(String(unix))
@@ -132,7 +141,7 @@ describe('fbPublishVideo', () => {
 
   it('scheduled with a stored-time mismatch: deletes the video and throws', async () => {
     queue(reply(200, { id: 'v3' }), reply(200, { id: 'v3', scheduled_publish_time: unix + 7200 }), reply(200, { success: true }))
-    const err = await fbPublishVideo({ token: TOKEN, pageId: PAGE, videoUrl: 'https://x/v.mp4', description: 'clip', scheduledAt: when }).catch(
+    const err = await fbScheduleVideo({ token: TOKEN, pageId: PAGE, videoUrl: 'https://x/v.mp4', description: 'clip', scheduledAt: when }).catch(
       (e) => e
     )
     expect(err).toBeInstanceOf(MetaScheduleMismatchError)
@@ -168,29 +177,3 @@ describe('isMetaObjectMissing', () => {
   })
 })
 
-describe('igWaitForContainer backoff', () => {
-  it('doubles the poll interval toward one minute and never sleeps past the deadline', async () => {
-    queue(
-      reply(200, { status_code: 'IN_PROGRESS' }),
-      reply(200, { status_code: 'IN_PROGRESS' }),
-      reply(200, { status_code: 'IN_PROGRESS' }),
-      reply(200, { status_code: 'IN_PROGRESS' }),
-      reply(200, { status_code: 'FINISHED' })
-    )
-    const slept: number[] = []
-    let clock = 0
-    const sleep = vi.fn(async (ms: number) => {
-      slept.push(ms)
-      clock += ms
-    })
-    const realNow = Date.now
-    Date.now = () => 1_000_000 + clock
-    try {
-      await igWaitForContainer({ token: TOKEN, containerId: 'c1', sleep, intervalMs: 5_000, maxWaitMs: 50_000 })
-    } finally {
-      Date.now = realNow
-    }
-    // 5 → 10 → 20 → then cut to the 50 s deadline (35 s elapsed → 15 s left).
-    expect(slept).toEqual([5_000, 10_000, 20_000, 15_000])
-  })
-})
