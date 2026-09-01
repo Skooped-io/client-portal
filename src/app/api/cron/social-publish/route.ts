@@ -34,14 +34,19 @@ export const maxDuration = 300
  *      read the published flag and flip them to 'published' + stamp
  *      capture_uploads.posted_at, so the library reflects what went live.
  *
- * Auth: Bearer CRON_SECRET only (the x-vercel-cron header is spoofable).
+ * Auth: Bearer CRON_SECRET or SOCIAL_CRON_SECRET only (the x-vercel-cron header is spoofable).
  */
 
 function verifyCron(request: NextRequest): boolean {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return process.env.NODE_ENV === 'development'
-  return secret === cronSecret
+  // Vercel Hobby cannot run a 5-minute cron, so a GitHub Actions workflow
+  // ticks this route with SOCIAL_CRON_SECRET; Vercel's own daily sweep still
+  // sends CRON_SECRET. Either value is accepted.
+  const accepted = [process.env.CRON_SECRET, process.env.SOCIAL_CRON_SECRET].filter(
+    (v): v is string => typeof v === 'string' && v.length > 0
+  )
+  if (accepted.length === 0) return process.env.NODE_ENV === 'development'
+  return typeof secret === 'string' && accepted.includes(secret)
 }
 
 export async function GET(request: NextRequest) {

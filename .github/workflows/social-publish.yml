@@ -4,7 +4,7 @@ name: social-publish
 # once-a-day crons (a */5 entry in vercel.json fails the whole deploy), so
 # the 5-minute tick lives here; vercel.json keeps a once-daily safety sweep.
 # The route authenticates by Bearer CRON_SECRET (same value as the Vercel
-# env var) — add it as a repository secret named CRON_SECRET.
+# env var) — the repository secret is named SOCIAL_CRON_SECRET (value = Vercel env SOCIAL_CRON_SECRET).
 # GitHub may delay or skip a scheduled run under load; the route is
 # idempotent (compare-and-swap claims), so overlapping or late ticks are safe.
 
@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Trigger the publisher
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.SOCIAL_CRON_SECRET }}
         run: |
           set -u
           if [ -z "$CRON_SECRET" ]; then

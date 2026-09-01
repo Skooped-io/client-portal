@@ -225,7 +225,7 @@ export function createSupabaseStore(admin: AnyClient): SocialStore {
         .eq('platform', platform)
         .maybeSingle()
       if (error) throw new Error(`loadAccount: ${error.message}`)
-      if (!data) return null
+      if (!data) return loadAccountFromEnv(admin, orgId, platform)
       return {
         id: data.id,
         org_id: data.org_id,
@@ -653,4 +653,43 @@ export async function runSocialPublish(deps: RunDeps): Promise<RunResult> {
 async function defaultFbPostState(token: string, postId: string, kind: FbObjectKind) {
   const state = await fbGetPost({ token, postId, kind })
   return { isPublished: state.isPublished }
+}
+
+/**
+ * Env fallback for connected accounts: SOCIAL_ACCOUNTS_JSON = JSON array of
+ * { org_slug, platform, external_id, page_id?, display_name?, access_token }.
+ * Exists because TOKEN_ENCRYPTION_KEY lives only on Vercel (write-only there),
+ * so the CLI cannot write a decryptable social_accounts row from a laptop.
+ * A social_accounts row always wins; this is consulted only on a DB miss.
+ */
+export async function loadAccountFromEnv(
+  admin: AnyClient,
+  orgId: string,
+  platform: Platform
+): Promise<SocialAccount | null> {
+  const raw = process.env.SOCIAL_ACCOUNTS_JSON
+  if (!raw) return null
+  let entries: Array<Record<string, unknown>> = []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    entries = Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : []
+  } catch {
+    return null
+  }
+  if (entries.length === 0) return null
+  const { data: org } = await admin.from('organizations').select('slug').eq('id', orgId).maybeSingle()
+  const slug = org?.slug
+  if (typeof slug !== 'string') return null
+  const hit = entries.find((e) => e.org_slug === slug && e.platform === platform)
+  if (!hit || typeof hit.access_token !== 'string' || typeof hit.external_id !== 'string') return null
+  return {
+    id: `env:${slug}:${platform}`,
+    org_id: orgId,
+    platform,
+    external_id: hit.external_id,
+    page_id: typeof hit.page_id === 'string' ? hit.page_id : null,
+    display_name: typeof hit.display_name === 'string' ? hit.display_name : null,
+    token: hit.access_token,
+    token_expires_at: null,
+  }
 }
