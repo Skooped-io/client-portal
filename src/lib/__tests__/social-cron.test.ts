@@ -10,6 +10,7 @@ import {
   type SocialStore,
 } from '../social/service'
 import { MetaApiError } from '../social/meta'
+import { GbpApiError } from '../gbp/posts'
 
 process.env.TOKEN_ENCRYPTION_KEY = 'a'.repeat(64)
 
@@ -33,6 +34,8 @@ function post(over: Partial<SocialPost> = {}): SocialPost {
     published_at: null,
     platform_post_id: 'page1_77',
     ig_container_id: null,
+    cta_type: null,
+    cta_url: null,
     status: 'scheduled',
     last_error: null,
     attempts: 1,
@@ -62,6 +65,11 @@ function memoryStore(rows: SocialPost[], accounts: SocialAccount[] = [fbAccount]
     async listScheduledFacebook(before) {
       return rows.filter(
         (r) => r.status === 'scheduled' && r.platform === 'facebook' && r.scheduled_at && Date.parse(r.scheduled_at) <= before.getTime()
+      )
+    },
+    async listScheduledGoogle(before) {
+      return rows.filter(
+        (r) => r.status === 'scheduled' && r.platform === 'google' && r.scheduled_at && Date.parse(r.scheduled_at) <= before.getTime()
       )
     },
     async update(id, patch) {
@@ -125,23 +133,48 @@ describe('runSocialReconcile', () => {
         post({ id: 'failed', status: 'failed' }),
       ])
       const fbPostState = vi.fn(async () => ({ isPublished: true }))
-      const result = await runSocialReconcile({ store, now: NOW, fbPostState })
+      const gbpPostState = vi.fn(async () => ({ state: 'LIVE' }))
+      const result = await runSocialReconcile({ store, now: NOW, fbPostState, gbpPostState })
       expect(fbPostState).not.toHaveBeenCalled()
+      expect(gbpPostState).not.toHaveBeenCalled()
       expect(fetchSpy).not.toHaveBeenCalled()
-      expect(result).toEqual({ stale: [], fbWentLive: [], fbMissing: [], fbHeld: [] })
+      expect(result).toEqual({
+        stale: [],
+        fbWentLive: [],
+        fbMissing: [],
+        fbHeld: [],
+        googleWentLive: [],
+        googleMissing: [],
+        googleHeld: [],
+      })
       expect(rows.map((r) => r.status)).toEqual(['draft', 'approved', 'approved', 'draft', 'failed'])
     } finally {
       vi.unstubAllGlobals()
     }
   })
 
-  it('with the REAL Meta transport (no injected reader): every call is a GET — zero POST/DELETE, even when a held post went live', async () => {
-    const calls: Array<{ method: string; path: string }> = []
+  it('with the REAL vendor transports (no injected readers): every Meta/GBP call is a GET — zero POST/DELETE, even when held posts went live', async () => {
+    const calls: Array<{ method: string; host: string; path: string }> = []
     const fetchSpy = vi.fn(async (input: string, init?: RequestInit) => {
-      calls.push({ method: init?.method ?? 'GET', path: new URL(input).pathname })
-      return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'page1_77', is_published: true, scheduled_publish_time: 1 }) }
+      const url = new URL(input)
+      calls.push({ method: init?.method ?? 'GET', host: url.host, path: url.pathname })
+      const body =
+        url.host === 'oauth2.googleapis.com'
+          ? { access_token: 'gbp-token', expires_in: 3600 }
+          : url.host === 'mybusiness.googleapis.com'
+            ? { name: 'accounts/1/locations/2/localPosts/9', state: 'LIVE' }
+            : { id: 'page1_77', is_published: true, scheduled_publish_time: 1 }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      }
     })
     vi.stubGlobal('fetch', fetchSpy)
+    process.env.GBP_CLIENT_ID = 'cid'
+    process.env.GBP_CLIENT_SECRET = 'shh'
+    process.env.GBP_REFRESH_TOKEN = 'refresh'
     try {
       const { store, rows, stamped } = memoryStore([
         post(),
@@ -150,17 +183,28 @@ describe('runSocialReconcile', () => {
         post({ id: 'ig-approved', status: 'approved', platform: 'instagram', platform_post_id: null }),
         post({ id: 'failed', status: 'failed' }),
         post({ id: 'fresh-claim', status: 'publishing', platform_post_id: null, updated_at: new Date(NOW.getTime() - 60_000).toISOString() }),
+        post({ id: 'goog', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/9' }),
       ])
       const result = await runSocialReconcile({ store, now: NOW })
       expect(result.fbWentLive).toEqual(['p1'])
+      expect(result.googleWentLive).toEqual(['goog'])
       expect(rows[0].status).toBe('published')
-      expect(stamped).toHaveLength(1)
-      // Exactly one Graph call, and it is a read of the held post's own node.
-      expect(calls).toEqual([{ method: 'GET', path: '/v26.0/page1_77' }])
-      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
-      expect(rows.slice(1).map((r) => r.status)).toEqual(['draft', 'approved', 'approved', 'failed', 'publishing'])
+      expect(rows[6].status).toBe('published')
+      expect(stamped).toHaveLength(2)
+      expect(stamped[1].ref).toBe('gbp:accounts/1/locations/2/localPosts/9')
+      // Reads of the held posts' own nodes, plus (at most) one Google token
+      // refresh POST — never a content POST or a DELETE on either vendor.
+      const contentCalls = calls.filter((c) => c.host !== 'oauth2.googleapis.com')
+      expect(contentCalls).toEqual([
+        { method: 'GET', host: 'graph.facebook.com', path: '/v26.0/page1_77' },
+        { method: 'GET', host: 'mybusiness.googleapis.com', path: '/v4/accounts/1/locations/2/localPosts/9' },
+      ])
+      expect(rows.slice(1, 6).map((r) => r.status)).toEqual(['draft', 'approved', 'approved', 'failed', 'publishing'])
     } finally {
       vi.unstubAllGlobals()
+      delete process.env.GBP_CLIENT_ID
+      delete process.env.GBP_CLIENT_SECRET
+      delete process.env.GBP_REFRESH_TOKEN
     }
   })
 
@@ -276,6 +320,60 @@ describe('runSocialReconcile', () => {
     await runSocialReconcile({ store, now: NOW, fbPostState: async () => ({ isPublished: true }), onError: (m) => errors.push(m) })
     expect(rows[0].status).toBe('published')
     expect(errors[0]).toMatch(/library could not be stamped/)
+  })
+
+  it('a held Google post that went LIVE → published, library stamped with gbp:<name>', async () => {
+    const name = 'accounts/1/locations/2/localPosts/9'
+    const { store, rows, stamped } = memoryStore([post({ id: 'g1', platform: 'google', platform_post_id: name })])
+    const gbpPostState = vi.fn(async () => ({ state: 'LIVE' }))
+    const result = await runSocialReconcile({ store, now: NOW, fbPostState: vi.fn(), gbpPostState })
+    expect(gbpPostState).toHaveBeenCalledWith(name)
+    expect(result.googleWentLive).toEqual(['g1'])
+    expect(rows[0].status).toBe('published')
+    expect(rows[0].published_at).toBe(NOW.toISOString())
+    expect(stamped).toEqual([{ orgId: 'org1', paths: ['org1/captures/job/1.heic'], ref: `gbp:${name}` }])
+  })
+
+  it('a held Google post deleted in Business Profile Manager → cancelled; a blip leaves it scheduled with the reason', async () => {
+    const { store, rows } = memoryStore([
+      post({ id: 'gone', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/1' }),
+      post({ id: 'blip', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/2' }),
+    ])
+    const gbpPostState = vi.fn(async (name: string) => {
+      if (name.endsWith('/1')) throw new GbpApiError('gone', 404, 'NOT_FOUND')
+      throw new GbpApiError('boom', 500, null)
+    })
+    const result = await runSocialReconcile({ store, now: NOW, fbPostState: vi.fn(), gbpPostState })
+    expect(result.googleMissing).toEqual(['gone'])
+    expect(result.googleHeld).toEqual(['blip'])
+    expect(rows[0].status).toBe('cancelled')
+    expect(rows[0].last_error).toMatch(/Business Profile Manager/)
+    expect(rows[1].status).toBe('scheduled')
+    expect(rows[1].last_error).toBe('boom')
+  })
+
+  it('a held Google post still SCHEDULED (or PROCESSING) is left alone and reported as held', async () => {
+    const { store, rows } = memoryStore([
+      post({ id: 'late', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/3' }),
+      post({ id: 'proc', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/4' }),
+    ])
+    const gbpPostState = vi.fn(async (name: string) => ({ state: name.endsWith('/3') ? 'SCHEDULED' : 'PROCESSING' }))
+    const result = await runSocialReconcile({ store, now: NOW, fbPostState: vi.fn(), gbpPostState })
+    expect(result.googleHeld.sort()).toEqual(['late', 'proc'])
+    expect(rows.map((r) => r.status)).toEqual(['scheduled', 'scheduled'])
+  })
+
+  it('a Google read-back blip never writes its reason onto a row a user moved meanwhile (compare-and-swap)', async () => {
+    const { store, rows } = memoryStore([post({ id: 'g1', platform: 'google', platform_post_id: 'accounts/1/locations/2/localPosts/5' })])
+    const gbpPostState = vi.fn(async () => {
+      rows[0].status = 'draft'
+      rows[0].platform_post_id = null
+      throw new GbpApiError('boom', 500, null)
+    })
+    const result = await runSocialReconcile({ store, now: NOW, fbPostState: vi.fn(), gbpPostState })
+    expect(result.googleHeld).toEqual(['g1'])
+    expect(rows[0].status).toBe('draft')
+    expect(rows[0].last_error).toBeNull()
   })
 
   it('sweeps rows stuck in publishing for 15+ minutes to failed', async () => {

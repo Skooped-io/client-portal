@@ -6,16 +6,21 @@ import {
   CAROUSEL_MAX,
   countHashtags,
   countMentions,
+  CTA_URL_MAX,
   defaultScheduleAt,
   FB_NATIVE_MAX_MS,
   FB_NATIVE_MIN_MS,
+  GOOGLE_NO_VIDEO_MESSAGE,
+  GOOGLE_OUT_OF_WINDOW_MESSAGE,
   mediaKind,
   OUT_OF_WINDOW_MESSAGE,
+  outOfWindowMessage,
   parseScheduledAt,
   PUBLISH_PLATFORMS,
   scheduleMode,
   transition,
   validateCaption,
+  validateCta,
   type MediaItem,
   type PostStatus,
 } from '../social/queue'
@@ -42,6 +47,19 @@ describe('mediaKind', () => {
     expect(mediaKind(Array.from({ length: CAROUSEL_MAX + 1 }, (_, i) => jpg(i))).ok).toBe(false)
     expect(mediaKind([{ path: 'x', content_type: 'application/pdf' }]).ok).toBe(false)
   })
+  it('google: any image selection is a single-photo image post', () => {
+    expect(mediaKind([jpg(1)], 'google')).toEqual({ ok: true, value: 'image' })
+    expect(mediaKind([jpg(1), heic(2), jpg(3)], 'google')).toEqual({ ok: true, value: 'image' })
+    // Even more than a carousel's worth: only the first image is ever sent.
+    expect(mediaKind(Array.from({ length: CAROUSEL_MAX + 1 }, (_, i) => jpg(i)), 'google')).toEqual({ ok: true, value: 'image' })
+  })
+  it('google: video (alone or mixed) is refused with the one-photo message', () => {
+    const alone = mediaKind([mov(1)], 'google')
+    expect(alone.ok).toBe(false)
+    if (!alone.ok) expect(alone.error).toBe(GOOGLE_NO_VIDEO_MESSAGE)
+    expect(mediaKind([jpg(1), mov(2)], 'google').ok).toBe(false)
+    expect(mediaKind([{ path: 'x', content_type: 'application/pdf' }], 'google').ok).toBe(false)
+  })
 })
 
 describe('defaultScheduleAt', () => {
@@ -58,8 +76,8 @@ describe('defaultScheduleAt', () => {
 })
 
 describe('buildDraftPosts', () => {
-  it('the publisher is Facebook-only', () => {
-    expect(PUBLISH_PLATFORMS).toEqual(['facebook'])
+  it('the publisher takes Facebook and Google', () => {
+    expect(PUBLISH_PLATFORMS).toEqual(['facebook', 'google'])
   })
   it('creates one Facebook draft defaulting to tomorrow 9am', () => {
     const r = buildDraftPosts([jpg(1), jpg(2)], ['facebook'], NOW, 'g1')
@@ -74,13 +92,49 @@ describe('buildDraftPosts', () => {
     expect(d.caption).toBeNull()
     expect(d.scheduled_at).toBe('2026-09-01T14:00:00.000Z')
     expect(d.media).toEqual([jpg(1), jpg(2)])
+    expect(d.cta_type).toBeNull()
+    expect(d.cta_url).toBeNull()
   })
-  it('dedupes facebook, refuses instagram (alone or with facebook), unknown, none', () => {
+  it('facebook + google share the group id; google keeps only the first image and seeds Learn more', () => {
+    const r = buildDraftPosts([jpg(1), jpg(2), jpg(3)], ['facebook', 'google'], NOW, 'g2')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.value).toHaveLength(2)
+    const [fb, goog] = r.value
+    expect(fb.platform).toBe('facebook')
+    expect(fb.post_type).toBe('carousel')
+    expect(fb.media).toHaveLength(3)
+    expect(goog.platform).toBe('google')
+    expect(goog.post_type).toBe('image')
+    expect(goog.media).toEqual([jpg(1)])
+    expect(goog.cta_type).toBe('LEARN_MORE')
+    expect(goog.cta_url).toBeNull()
+    expect(goog.group_id).toBe('g2')
+    expect(goog.scheduled_at).toBe(fb.scheduled_at)
+  })
+  it('google alone works too', () => {
+    const r = buildDraftPosts([jpg(1)], ['google'], NOW, 'g3')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.value).toHaveLength(1)
+    expect(r.value[0].platform).toBe('google')
+  })
+  it('a video queued for google (alone or with facebook) is refused with the one-photo message', () => {
+    const alone = buildDraftPosts([mov(1)], ['google'], NOW, 'g')
+    expect(alone.ok).toBe(false)
+    if (!alone.ok) expect(alone.error).toBe(GOOGLE_NO_VIDEO_MESSAGE)
+    const both = buildDraftPosts([mov(1)], ['facebook', 'google'], NOW, 'g')
+    expect(both.ok).toBe(false)
+    if (!both.ok) expect(both.error).toBe(GOOGLE_NO_VIDEO_MESSAGE)
+    // Facebook alone still takes the video.
+    expect(buildDraftPosts([mov(1)], ['facebook'], NOW, 'g').ok).toBe(true)
+  })
+  it('dedupes platforms, refuses instagram (alone or with facebook), unknown, none', () => {
     const r = buildDraftPosts([jpg(1)], ['facebook', 'facebook'], NOW, 'g')
     expect(r.ok && r.value.length).toBe(1)
     const ig = buildDraftPosts([jpg(1)], ['instagram'], NOW, 'g')
     expect(ig.ok).toBe(false)
-    if (!ig.ok) expect(ig.error).toMatch(/Only Facebook/)
+    if (!ig.ok) expect(ig.error).toMatch(/Only Facebook and Google Business/)
     expect(buildDraftPosts([jpg(1)], ['facebook', 'instagram'], NOW, 'g').ok).toBe(false)
     expect(buildDraftPosts([jpg(1)], ['tiktok'], NOW, 'g').ok).toBe(false)
     expect(buildDraftPosts([jpg(1)], [], NOW, 'g').ok).toBe(false)
@@ -89,6 +143,39 @@ describe('buildDraftPosts', () => {
   it('propagates media errors', () => {
     const r = buildDraftPosts([jpg(1), mov(2)], ['facebook'], NOW, 'g')
     expect(r.ok).toBe(false)
+  })
+})
+
+describe('validateCta (google button rules)', () => {
+  it('no button is fine; CALL keeps no URL', () => {
+    expect(validateCta(null, null)).toEqual({ ok: true, value: { cta_type: null, cta_url: null } })
+    expect(validateCta('', 'https://x.com')).toEqual({ ok: true, value: { cta_type: null, cta_url: null } })
+    expect(validateCta('CALL', 'https://x.com')).toEqual({ ok: true, value: { cta_type: 'CALL', cta_url: null } })
+  })
+  it('every other button needs an https URL at approve time', () => {
+    expect(validateCta('LEARN_MORE', 'https://gunnsfencing.com/')).toEqual({
+      ok: true,
+      value: { cta_type: 'LEARN_MORE', cta_url: 'https://gunnsfencing.com/' },
+    })
+    for (const t of ['LEARN_MORE', 'BOOK', 'ORDER', 'SHOP', 'SIGN_UP']) {
+      const missing = validateCta(t, null)
+      expect(missing.ok).toBe(false)
+      if (!missing.ok) expect(missing.error).toMatch(/needs a link/)
+    }
+    expect(validateCta('BOOK', 'http://insecure.com').ok).toBe(false)
+    expect(validateCta('BOOK', 'not a url').ok).toBe(false)
+    expect(validateCta('BOOK', `https://x.com/${'a'.repeat(CTA_URL_MAX)}`).ok).toBe(false)
+  })
+  it('a draft save may leave the URL empty, but never a malformed one', () => {
+    expect(validateCta('LEARN_MORE', null, { required: false })).toEqual({
+      ok: true,
+      value: { cta_type: 'LEARN_MORE', cta_url: null },
+    })
+    expect(validateCta('LEARN_MORE', 'ftp://x', { required: false }).ok).toBe(false)
+  })
+  it('rejects unknown button types', () => {
+    expect(validateCta('BUY_NOW', 'https://x.com').ok).toBe(false)
+    expect(validateCta(42, 'https://x.com').ok).toBe(false)
   })
 })
 
@@ -184,6 +271,12 @@ describe('scheduleMode (schedule-only rule)', () => {
       'Pick a time between 20 minutes and 29 days from now — posts are always scheduled for your review in Business Suite, never posted immediately'
     )
   })
+  it('google shares the window; its refusal names Business Profile Manager', () => {
+    expect(outOfWindowMessage('facebook')).toBe(OUT_OF_WINDOW_MESSAGE)
+    expect(outOfWindowMessage('google')).toBe(GOOGLE_OUT_OF_WINDOW_MESSAGE)
+    expect(GOOGLE_OUT_OF_WINDOW_MESSAGE).toMatch(/20 minutes and 29 days/)
+    expect(GOOGLE_OUT_OF_WINDOW_MESSAGE).toMatch(/Business Profile Manager/)
+  })
 })
 
 describe('transition (state machine)', () => {
@@ -244,6 +337,13 @@ describe('allowedActions', () => {
     expect(allowedActions(fb('failed'))).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
     expect(allowedActions(fb('publishing'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
     expect(allowedActions(fb('published'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
+  })
+  it('google rows get the same buttons as Facebook rows', () => {
+    const goog = (status: PostStatus) => ({ status, platform: 'google' as const })
+    expect(allowedActions(goog('draft'))).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
+    expect(allowedActions(goog('scheduled'))).toEqual({ edit: false, approve: false, unapprove: true, delete: true })
+    expect(allowedActions(goog('failed'))).toEqual({ edit: true, approve: true, unapprove: false, delete: true })
+    expect(allowedActions(goog('published'))).toEqual({ edit: false, approve: false, unapprove: false, delete: false })
   })
   it('legacy Instagram rows are read-only apart from Delete', () => {
     const ig = (status: PostStatus) => ({ status, platform: 'instagram' as const })

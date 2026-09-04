@@ -9,7 +9,14 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * GET /api/cron/gbp-posts — daily (vercel.json)
+ * GET /api/cron/gbp-posts — NO SCHEDULE ANYMORE (manual invocation only).
+ *
+ * The vercel.json cron entry was removed 2026-09-03 (Joseph): the monthly
+ * markdown-batch pipeline is retired in favor of the /m publisher, where
+ * 'google' is a first-class platform and Google itself holds every scheduled
+ * post (LocalPost.scheduledTime). This route is kept for manual runs against
+ * whatever gbp_scheduled_posts rows still exist (Bearer CRON_SECRET); the
+ * loader script and the table are untouched.
  *
  * Publishes approved GBP posts whose publish_date has arrived (America/Chicago).
  * Approve-then-publish (spec §3): rows only exist after Joseph approves a

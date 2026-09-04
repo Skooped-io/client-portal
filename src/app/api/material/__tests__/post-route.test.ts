@@ -40,6 +40,12 @@ const meta = vi.hoisted(() => ({
   fbDeletePost: vi.fn(),
   fbGetPost: vi.fn(),
 }))
+const gbp = vi.hoisted(() => ({
+  scheduleOnGoogle: vi.fn(),
+  getLocalPost: vi.fn(),
+  deleteLocalPost: vi.fn(),
+  getGbpAccessToken: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
@@ -62,6 +68,16 @@ vi.mock('@/lib/social/meta', async (orig) => ({
 vi.mock('@/lib/social/service', async (orig) => ({
   ...(await orig<typeof import('@/lib/social/service')>()),
   scheduleOnFacebook: meta.scheduleOnFacebook,
+  scheduleOnGoogle: gbp.scheduleOnGoogle,
+}))
+vi.mock('@/lib/gbp/client', async (orig) => ({
+  ...(await orig<typeof import('@/lib/gbp/client')>()),
+  getGbpAccessToken: gbp.getGbpAccessToken,
+}))
+vi.mock('@/lib/gbp/posts', async (orig) => ({
+  ...(await orig<typeof import('@/lib/gbp/posts')>()),
+  getLocalPost: gbp.getLocalPost,
+  deleteLocalPost: gbp.deleteLocalPost,
 }))
 vi.mock('@/lib/logger', () => ({
   portal: { event: vi.fn(), error: vi.fn() },
@@ -94,6 +110,8 @@ function draft(over: Record<string, unknown> = {}) {
     published_at: null,
     platform_post_id: null,
     ig_container_id: null,
+    cta_type: null,
+    cta_url: null,
     status: 'draft',
     last_error: null,
     attempts: 0,
@@ -104,7 +122,15 @@ function draft(over: Record<string, unknown> = {}) {
   }
 }
 
-const org = { data: { id: 'org1', name: 'Gunn' }, error: null }
+const GBP_NAME = 'accounts/1/locations/2/localPosts/9'
+
+/** A google draft: single photo, the queue-time CTA default. */
+function googleDraft(over: Record<string, unknown> = {}) {
+  return draft({ platform: 'google', cta_type: 'LEARN_MORE', cta_url: 'https://gunnsfencing.com/', ...over })
+}
+
+const org = { data: { id: 'org1', name: 'Gunn', slug: 'gunns-fencing' }, error: null }
+const gbpLocation = { data: { gbp_location_name: 'accounts/1/locations/2', active: true }, error: null }
 const account = {
   data: {
     id: 'a1',
@@ -148,6 +174,13 @@ describe('POST /api/material/post', () => {
     meta.fbDeletePost.mockReset()
     meta.fbDeletePost.mockResolvedValue(undefined)
     meta.fbGetPost.mockReset()
+    gbp.scheduleOnGoogle.mockReset()
+    gbp.scheduleOnGoogle.mockResolvedValue({ platformPostId: GBP_NAME, postRef: `gbp:${GBP_NAME}` })
+    gbp.getLocalPost.mockReset()
+    gbp.deleteLocalPost.mockReset()
+    gbp.deleteLocalPost.mockResolvedValue(undefined)
+    gbp.getGbpAccessToken.mockReset()
+    gbp.getGbpAccessToken.mockResolvedValue('gbp-token')
   })
 
   it('404s without a token, before any lookup', async () => {
@@ -466,5 +499,162 @@ describe('POST /api/material/post', () => {
     expect(writes[1].status).toBe('failed')
     expect(writes[1].platform_post_id).toBe('page1_unread')
     expect(writes[1].last_error).toMatch(/could not be read back/)
+  })
+
+  // ── the google branch ─────────────────────────────────────────────────────
+
+  it('google draft 2 hours out → claimed into publishing (with CTA), scheduleOnGoogle once, then scheduled with the resource name', async () => {
+    seed(googleDraft(), { gbp_managed_locations: gbpLocation })
+    const { POST } = await import('../post/route')
+    const when = inTwoHours()
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Fence day', scheduled_at: when }))
+    expect(res.status).toBe(200)
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(gbp.scheduleOnGoogle).toHaveBeenCalledTimes(1)
+    expect(meta.scheduleOnFacebook).not.toHaveBeenCalled()
+    const input = gbp.scheduleOnGoogle.mock.calls[0][0]
+    expect(input.post.status).toBe('publishing')
+    expect(input.post.cta_type).toBe('LEARN_MORE')
+    expect(input.post.cta_url).toBe('https://gunnsfencing.com/')
+    expect(input.scheduledAt.toISOString()).toBe(when)
+    const writes = statusWrites()
+    expect(writes).toHaveLength(2)
+    expect(writes[0].status).toBe('publishing')
+    expect(writes[0].cta_type).toBe('LEARN_MORE')
+    expect(writes[0].cta_url).toBe('https://gunnsfencing.com/')
+    expect(writes[1].status).toBe('scheduled')
+    expect(writes[1].platform_post_id).toBe(GBP_NAME)
+  })
+
+  it('google approve without a mapped location is a 409 naming the fix, before media prep', async () => {
+    seed(googleDraft(), { gbp_managed_locations: { data: null, error: null } })
+    const { POST } = await import('../post/route')
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/No Google Business location connected.*gbp_managed_locations/)
+    expect(prepare).not.toHaveBeenCalled()
+    expect(gbp.scheduleOnGoogle).not.toHaveBeenCalled()
+  })
+
+  it('google approve outside the window is refused with the Business Profile Manager message', async () => {
+    seed(googleDraft(), { gbp_managed_locations: gbpLocation })
+    const { GOOGLE_OUT_OF_WINDOW_MESSAGE } = await import('@/lib/social/queue')
+    const { POST } = await import('../post/route')
+    for (const when of [null, new Date(Date.now() + 5 * 60 * 1000).toISOString()]) {
+      const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: when }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe(GOOGLE_OUT_OF_WINDOW_MESSAGE)
+    }
+    expect(gbp.scheduleOnGoogle).not.toHaveBeenCalled()
+    expect(statusWrites()).toHaveLength(0)
+  })
+
+  it('google approve of a video row is refused with the one-photo message', async () => {
+    seed(
+      googleDraft({ post_type: 'video', media: [{ path: 'org1/captures/j/1.mov', content_type: 'video/quicktime' }] }),
+      { gbp_managed_locations: gbpLocation }
+    )
+    const { POST } = await import('../post/route')
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Clip', scheduled_at: inTwoHours() }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/one photo — no video/)
+    expect(gbp.scheduleOnGoogle).not.toHaveBeenCalled()
+  })
+
+  it('google approve enforces the CTA rules: a button without an https link is refused', async () => {
+    const { POST } = await import('../post/route')
+    seed(googleDraft({ cta_url: null }), { gbp_managed_locations: gbpLocation })
+    const missing = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    expect(missing.status).toBe(400)
+    expect((await missing.json()).error).toMatch(/needs a link/)
+    const insecure = await POST(
+      req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours(), cta_url: 'http://x.com' })
+    )
+    expect(insecure.status).toBe(400)
+    expect((await insecure.json()).error).toMatch(/https/)
+    // No button at all is fine.
+    seed(googleDraft({ cta_type: null, cta_url: null }), { gbp_managed_locations: gbpLocation })
+    const none = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    expect(none.status).toBe(200)
+    expect(gbp.scheduleOnGoogle).toHaveBeenCalledTimes(1)
+  })
+
+  it('google update saves CTA edits on a draft; an unknown button type is refused', async () => {
+    seed(googleDraft(), { gbp_managed_locations: gbpLocation })
+    const { POST } = await import('../post/route')
+    const res = await POST(
+      req({ token: TOKEN, id: ID, action: 'update', caption: 'c', cta_type: 'BOOK', cta_url: 'https://book.example.com/' })
+    )
+    expect(res.status).toBe(200)
+    const write = statusWrites().at(-1)!
+    expect(write.cta_type).toBe('BOOK')
+    expect(write.cta_url).toBe('https://book.example.com/')
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'update', cta_type: 'BUY_NOW' }))).status).toBe(400)
+    // A draft save may leave the URL empty; approve is what enforces it.
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'update', cta_type: 'BOOK', cta_url: null }))).status).toBe(200)
+  })
+
+  it('a google schedule mismatch (went LIVE on read-back) whose delete failed keeps the orphan name on the failed row', async () => {
+    seed(googleDraft(), { gbp_managed_locations: gbpLocation })
+    const { GbpScheduleMismatchError } = await import('@/lib/social/service')
+    gbp.scheduleOnGoogle.mockRejectedValue(new GbpScheduleMismatchError(GBP_NAME, 'LIVE', false))
+    const { POST } = await import('../post/route')
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Ready', scheduled_at: inTwoHours() }))
+    expect(res.status).toBe(200)
+    const writes = statusWrites()
+    expect(writes[1].status).toBe('failed')
+    expect(writes[1].platform_post_id).toBe(GBP_NAME)
+    expect(writes[1].last_error).toMatch(/expected SCHEDULED/)
+    expect(writes[1].last_error).toMatch(/could not be removed/)
+  })
+
+  it('unapprove of a Google-held post deletes it at Google first; refused once it is LIVE', async () => {
+    const { POST } = await import('../post/route')
+
+    seed(googleDraft({ status: 'scheduled', platform_post_id: GBP_NAME, caption: 'c' }))
+    gbp.getLocalPost.mockResolvedValue({ state: 'SCHEDULED', searchUrl: null })
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'unapprove' }))).status).toBe(200)
+    expect(gbp.deleteLocalPost).toHaveBeenCalledTimes(1)
+    expect(gbp.deleteLocalPost.mock.calls[0][1]).toBe(GBP_NAME)
+    expect(statusWrites().at(-1)?.status).toBe('draft')
+
+    gbp.deleteLocalPost.mockClear()
+    seed(googleDraft({ status: 'scheduled', platform_post_id: GBP_NAME, caption: 'c' }))
+    gbp.getLocalPost.mockResolvedValue({ state: 'LIVE', searchUrl: 'https://g.co/x' })
+    const res = await POST(req({ token: TOKEN, id: ID, action: 'unapprove' }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/already went live on Google/)
+    expect(gbp.deleteLocalPost).not.toHaveBeenCalled()
+  })
+
+  it('delete of a google row with a held post removes it at Google (already-gone is fine); a LIVE one is left alone', async () => {
+    const { POST } = await import('../post/route')
+
+    seed(googleDraft({ status: 'scheduled', platform_post_id: GBP_NAME, caption: 'c' }))
+    gbp.getLocalPost.mockResolvedValue({ state: 'SCHEDULED', searchUrl: null })
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
+    expect(gbp.deleteLocalPost).toHaveBeenCalledTimes(1)
+    expect(statusWrites().at(-1)?.status).toBe('cancelled')
+
+    // Deleted in Business Profile Manager already: the GET says NOT_FOUND, the row still cancels.
+    gbp.deleteLocalPost.mockClear()
+    const { GbpApiError } = await import('@/lib/gbp/posts')
+    seed(googleDraft({ status: 'failed', platform_post_id: GBP_NAME }))
+    gbp.getLocalPost.mockRejectedValue(new GbpApiError('gone', 404, 'NOT_FOUND'))
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
+    expect(gbp.deleteLocalPost).not.toHaveBeenCalled()
+    expect(statusWrites().at(-1)?.status).toBe('cancelled')
+
+    // A live orphan on a failed row is left alone and Retry is refused.
+    seed(googleDraft({ status: 'failed', platform_post_id: GBP_NAME }))
+    gbp.getLocalPost.mockReset()
+    gbp.getLocalPost.mockResolvedValue({ state: 'LIVE', searchUrl: null })
+    expect((await POST(req({ token: TOKEN, id: ID, action: 'delete' }))).status).toBe(200)
+    expect(gbp.deleteLocalPost).not.toHaveBeenCalled()
+    seed(googleDraft({ status: 'failed', platform_post_id: GBP_NAME }), { gbp_managed_locations: gbpLocation })
+    const retry = await POST(req({ token: TOKEN, id: ID, action: 'approve', caption: 'Again', scheduled_at: inTwoHours() }))
+    expect(retry.status).toBe(409)
+    expect((await retry.json()).error).toMatch(/already live on Google/)
+    expect(gbp.scheduleOnGoogle).not.toHaveBeenCalled()
   })
 })

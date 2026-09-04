@@ -41,14 +41,30 @@ describe('GET /api/cron/social-publish (reconciliation only)', () => {
 
   it('accepts SOCIAL_CRON_SECRET (the GitHub tick) as well as CRON_SECRET', async () => {
     process.env.SOCIAL_CRON_SECRET = 'gh-secret'
-    run.mockResolvedValue({ stale: [], fbWentLive: [], fbMissing: [], fbHeld: [] })
+    run.mockResolvedValue({
+      stale: [],
+      fbWentLive: [],
+      fbMissing: [],
+      fbHeld: [],
+      googleWentLive: [],
+      googleMissing: [],
+      googleHeld: [],
+    })
     const { GET } = await import('../social-publish/route')
     expect((await GET(get('Bearer gh-secret'))).status).toBe(200)
     expect((await GET(get('Bearer cron-secret'))).status).toBe(200)
   })
 
   it('runs one reconciliation pass and reports counts — nothing is published from here', async () => {
-    run.mockResolvedValue({ stale: ['s'], fbWentLive: ['c'], fbMissing: ['m'], fbHeld: ['h1', 'h2'] })
+    run.mockResolvedValue({
+      stale: ['s'],
+      fbWentLive: ['c'],
+      fbMissing: ['m'],
+      fbHeld: ['h1', 'h2'],
+      googleWentLive: ['g1'],
+      googleMissing: [],
+      googleHeld: ['g2'],
+    })
     const { GET } = await import('../social-publish/route')
     const res = await GET(get('Bearer cron-secret'))
     expect(res.status).toBe(200)
@@ -57,6 +73,9 @@ describe('GET /api/cron/social-publish (reconciliation only)', () => {
     expect(body.fbWentLive).toBe(1)
     expect(body.fbMissing).toBe(1)
     expect(body.fbHeld).toBe(2)
+    expect(body.googleWentLive).toBe(1)
+    expect(body.googleMissing).toBe(0)
+    expect(body.googleHeld).toBe(1)
     expect(body).not.toHaveProperty('published')
     expect(run).toHaveBeenCalledTimes(1)
     // The runner takes no publish hook at all: there is nothing to inject.

@@ -1,57 +1,103 @@
-# Social publisher (Facebook scheduling from /m)
+# Social publisher (Facebook + Google Business scheduling from /m)
 
-Joseph turns crew-captured material into Facebook posts from the material
-page (`app.skooped.io/m/<token>`).
+Joseph turns crew-captured material into Facebook and Google Business Profile
+posts from the material page (`app.skooped.io/m/<token>`).
 
-**Product rule (Joseph, 2026-09-01, overrides the 8/31 design):** the Meta API
-is only ever used to SCHEDULE posts. Nothing is posted live from Skooped.
-Approve creates a Meta-held scheduled post; Joseph does the final review,
-edits or deletes it in Business Suite Planner; Meta publishes it at the time.
-Instagram has no scheduling API and is therefore not in the publisher at all:
-schedule it by hand in Business Suite, then **Mark posted** on /m.
+**Product rule (Joseph, 2026-09-01; Google added 2026-09-03):** vendor APIs
+are only ever used to SCHEDULE posts. Nothing is posted live from Skooped.
+Approve creates a vendor-held scheduled post — Facebook via `published=false`
++ `scheduled_publish_time`, Google via `LocalPost.scheduledTime` (read-back
+state must be `SCHEDULED`); Joseph does the final review, edits or deletes it
+in Business Suite Planner / Business Profile Manager; the vendor publishes it
+at the time. Instagram has no scheduling API and is therefore not in the
+publisher at all: schedule it by hand in Business Suite, then **Mark posted**
+on /m.
 
 ## The flow
 
 ```
-select files on /m  →  Queue N for posting (Facebook)  →  DRAFT row
+select files on /m  →  Queue N for posting (Facebook / Google / Both)  →  DRAFT row per platform
                                                             │ edit caption, pick a time
+                                                            │ (google: pick the CTA button + link)
                                                             ▼
                                                          Approve
                                                             │ time must be 20 min – 29 days out,
                                                             │ else refused (no publish-now, no cron fallback)
                                                             ▼
-                                   Meta SCHEDULED post created (published=false +
-                                   scheduled_publish_time; temporary photos + /feed,
-                                   or /videos)  →  row 'scheduled'
+                                   Facebook: Meta SCHEDULED post created (published=false +
+                                   scheduled_publish_time; temporary photos + /feed, or /videos)
+                                   Google:   v4 localPost created WITH scheduledTime, read back,
+                                             must be state SCHEDULED (else best-effort delete + fail)
+                                                            →  row 'scheduled'
                                                             │
                                    Joseph reviews / edits / deletes it in Business Suite Planner
+                                   (FB) or Business Profile Manager (Google)
                                                             │
-                                   Meta publishes it; the cron reads it back and marks the
+                                   The vendor publishes it; the cron reads it back and marks the
                                    row 'published' + stamps the library (or 'cancelled' if it
-                                   was deleted in Planner)
+                                   was deleted in the vendor UI)
 ```
 
 Row states (`social_posts.status`): `draft → publishing (claim) → scheduled → published`,
-with `failed` (Meta refused; Retry) and `cancelled`. `approved` is a legacy
+with `failed` (vendor refused; Retry) and `cancelled`. `approved` is a legacy
 resting state from the 8/31 design and is never written anymore; such rows
 only accept Unapprove/Delete. Unapprove/Delete on a `scheduled` row deletes
-the held post at Meta first and is refused if Meta already published it.
+the held post at the vendor first and is refused if it already went live.
 Every first status write from the page is a compare-and-swap on the status
 the row was loaded with (double tap / second tab → 409 "changed elsewhere").
 
 Files in a published post get `capture_uploads.posted_at` + `post_ref`
-(`fb:<post id>`, appended), the same columns "Mark posted" writes.
+(`fb:<post id>` / `gbp:<localPost resource name>`, appended), the same columns
+"Mark posted" writes.
+
+## The Google platform (2026-09-03)
+
+- **Queue** offers Google only when the org has an active `gbp_managed_locations`
+  row with a resolved `gbp_location_name` (`client_key` = the org **slug**;
+  the queue route refuses with "No Google Business location connected for
+  this client" otherwise). One tap on Both creates an FB and a Google draft
+  sharing a `group_id`.
+- **Media**: Google posts carry ONE photo — a multi-image selection keeps only
+  the first image on the google draft; video is refused outright ("Google
+  Business posts take one photo — no video"). The same derived JPEG pipeline
+  is reused (public URL, JPEG, well above Google's 250 px / 10 KB floor).
+- **CTA button** (`social_posts.cta_type` / `cta_url`): None / Call /
+  Learn more (the queue-time default) / Book / Order / Shop / Sign up. Call
+  uses the location's listed phone number; every other button needs an
+  https URL (≤512 chars), enforced at approve.
+- **Caption**: no documented Google max, so google keeps Facebook's 63,206 cap.
+- **Auth**: the existing fleet OAuth token (`GBP_CLIENT_ID/SECRET/REFRESH_TOKEN`),
+  not `social_accounts` — nothing to connect per client beyond the location row.
+- **Hold verification**: after create, the post is read back and must be state
+  `SCHEDULED`. `LIVE` or missing → best-effort delete + the row fails keeping
+  the resource name (so Retry/Delete can clean the orphan, never duplicate).
+  The GBP client refuses a publisher-path create without `scheduledTime`
+  (`assertGbpScheduleOnly`, gated on `{ scheduleOnly: true }` — the legacy
+  gbp-posts route still publishes immediately without the flag).
+- Google's own scheduledTime window is undocumented; both vendors share the
+  20 min – 29 day window until observed otherwise.
+
+## Retired: the daily GBP batch cron (2026-09-03)
+
+`/api/cron/gbp-posts` has **no schedule anymore** (removed from `vercel.json`);
+the monthly markdown-batch pipeline (`ops/gbp-posts` → `scripts/load-gbp-posts.ts`
+→ `gbp_scheduled_posts`) is retired in favor of /m. The route file remains for
+manual invocation (Bearer `CRON_SECRET`) against any leftover rows; the loader
+script and table are untouched.
 
 ## The cron: reconciliation only
 
 `/api/cron/social-publish` (every 5 min via `.github/workflows/social-publish.yml`,
-plus a once-daily sweep from `vercel.json`) never calls a Meta create or
-publish endpoint. Per run:
+plus a once-daily sweep from `vercel.json`) never calls a Meta or Google
+create/publish endpoint. Per run:
 
 0. Rows stuck in `publishing` for 15+ min (a killed approve) → `failed` so Retry shows.
 1. `scheduled` Facebook rows past their time (+60 s grace): read the post back.
    Published → `published`, `published_at`, library stamped. Gone from Meta
    (deleted in Planner) → `cancelled`. Otherwise left `scheduled`, checked next tick.
+2. `scheduled` Google rows, same pass: `LIVE` → `published` + stamp
+   (`gbp:<name>`); gone (deleted in Business Profile Manager) → `cancelled`;
+   still `SCHEDULED`/`PROCESSING` or a read blip → left `scheduled`.
 
 Legacy Instagram rows and legacy `approved` rows are never touched.
 
@@ -67,6 +113,7 @@ Env vars (Vercel):
 | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | admin client; public bucket URLs Meta fetches from |
 | `META_APP_ID`, `META_APP_SECRET` | optional: the admin route runs `/debug_token`, stores the expiry and refuses a token whose `profile_id` is not the given Page |
 | `SOCIAL_ACCOUNTS_JSON` | optional fallback when no `social_accounts` row exists (see `loadAccountFromEnv`) |
+| `GBP_CLIENT_ID`, `GBP_CLIENT_SECRET`, `GBP_REFRESH_TOKEN` | the Google platform: the fleet OAuth token (`src/lib/gbp/client.ts`) — same credentials the review responder uses |
 
 Secrets are compared in constant time (`src/lib/cron-secret.ts`).
 
@@ -99,6 +146,13 @@ still lists the org (`env_fallback_active: true`) the publisher keeps using
 that entry — remove it too.
 (`npm run social-account` still works from a machine that has
 `TOKEN_ENCRYPTION_KEY` + `SUPABASE_DB_URL`; Facebook only.)
+
+### Connect a client's Google Business location
+
+Nothing token-shaped: give the org an active `gbp_managed_locations` row whose
+`client_key` equals the org **slug** and whose `gbp_location_name` is resolved
+(the review responder's sync resolves it). The /m Queue sheet shows the Google
+option as soon as that row exists.
 
 ## Media
 

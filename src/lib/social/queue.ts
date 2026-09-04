@@ -5,18 +5,20 @@
  * caption limits, and the state machine are unit-testable without Supabase or
  * Meta. Routes and the cron call these and do the side effects.
  *
- * Product rule (Joseph, 2026-09-01, overrides the 8/31 design): the Meta API
- * is only ever used to SCHEDULE a Facebook post. Nothing is published live
- * from Skooped. Approve creates a Meta-held scheduled post (published=false +
- * scheduled_publish_time); Joseph reviews, edits or deletes it in Business
- * Suite Planner, and Meta publishes it at the chosen time. Instagram has no
- * scheduling API and is therefore not handled here at all: it is scheduled
- * by hand in Business Suite and the file marked posted on /m.
+ * Product rule (Joseph, 2026-09-01, extended to Google 2026-09-03): vendor
+ * APIs are only ever used to SCHEDULE posts. Nothing is published live from
+ * Skooped. Approve creates a vendor-held scheduled post — Facebook via
+ * published=false + scheduled_publish_time, Google via LocalPost.scheduledTime
+ * (read-back state SCHEDULED) — Joseph reviews, edits or deletes it in
+ * Business Suite Planner / Business Profile Manager, and the vendor publishes
+ * it at the chosen time. Instagram has no scheduling API and is therefore not
+ * handled here at all: it is scheduled by hand in Business Suite and the file
+ * marked posted on /m.
  */
 
 // 'instagram' remains in the type because rows from the 8/31 design may still
 // exist; they are shown read-only and only Delete applies to them.
-export type Platform = 'facebook' | 'instagram'
+export type Platform = 'facebook' | 'instagram' | 'google'
 export type PostType = 'image' | 'carousel' | 'video'
 export type PostStatus =
   | 'draft'
@@ -27,9 +29,9 @@ export type PostStatus =
   | 'failed'
   | 'cancelled'
 
-export const PLATFORMS: readonly Platform[] = ['facebook', 'instagram'] as const
-/** The platforms the publisher can queue for. Facebook only: Meta can hold a scheduled Page post. */
-export const PUBLISH_PLATFORMS: readonly Platform[] = ['facebook'] as const
+export const PLATFORMS: readonly Platform[] = ['facebook', 'instagram', 'google'] as const
+/** The platforms the publisher can queue for: both vendors can HOLD a scheduled post. */
+export const PUBLISH_PLATFORMS: readonly Platform[] = ['facebook', 'google'] as const
 export const POST_STATUSES: readonly PostStatus[] = [
   'draft',
   'approved',
@@ -50,7 +52,10 @@ export interface DerivedMediaItem {
   public_url: string
 }
 
-/** Mirrors the social_posts row (supabase/migrations/20260901000000_social_publisher.sql). */
+/**
+ * Mirrors the social_posts row (supabase/migrations/20260901000000_social_publisher.sql
+ * + 20260903000000_social_posts_google.sql).
+ */
 export interface SocialPost {
   id: string
   org_id: string
@@ -60,6 +65,9 @@ export interface SocialPost {
   media: MediaItem[]
   derived_media: DerivedMediaItem[] | null
   scheduled_at: string | null
+  /** Google Business CTA button (google rows only). */
+  cta_type: CtaType | null
+  cta_url: string | null
   approved_at: string | null
   published_at: string | null
   platform_post_id: string | null
@@ -79,19 +87,74 @@ export interface DraftPost {
   caption: string | null
   media: MediaItem[]
   scheduled_at: string
+  cta_type: CtaType | null
+  cta_url: string | null
   status: 'draft'
   group_id: string
 }
 
-// Meta limits (verified against the live docs 2026-08-31, see docs/social-publisher.md).
+// Meta limits (verified against the live docs 2026-08-31, see
+// docs/social-publisher.md). Google documents no max for a local post summary
+// (1,500 chars is third-party folklore), so google keeps Facebook's cap.
 export const CAPTION_LIMITS: Record<Platform, number> = {
   facebook: 63206,
   instagram: 2200,
+  google: 63206,
 }
 export const IG_MAX_HASHTAGS = 30
 export const IG_MAX_MENTIONS = 20
 export const CAROUSEL_MIN = 2
 export const CAROUSEL_MAX = 10
+
+// Google Business call-to-action buttons (v4 LocalPost.callToAction).
+// CALL uses the business's listed phone number; every other type needs a URL.
+export const CTA_TYPES = ['CALL', 'LEARN_MORE', 'BOOK', 'ORDER', 'SHOP', 'SIGN_UP'] as const
+export type CtaType = (typeof CTA_TYPES)[number]
+export const CTA_URL_MAX = 512
+
+export function isCtaType(value: unknown): value is CtaType {
+  return typeof value === 'string' && (CTA_TYPES as readonly string[]).includes(value)
+}
+
+/**
+ * CTA rules for a google row: no CTA is fine; CALL needs (and keeps) no URL;
+ * every other type needs an https URL ≤ CTA_URL_MAX chars. `required` is true
+ * at approve time; a draft save ({ required: false }) may leave the URL empty
+ * (a malformed non-empty URL is still refused).
+ */
+export function validateCta(
+  ctaType: unknown,
+  ctaUrl: unknown,
+  options: { required?: boolean } = {}
+): Result<{ cta_type: CtaType | null; cta_url: string | null }> {
+  const required = options.required ?? true
+  if (ctaType == null || ctaType === '') {
+    return { ok: true, value: { cta_type: null, cta_url: null } }
+  }
+  if (!isCtaType(ctaType)) return { ok: false, error: 'Unknown button type' }
+  if (ctaType === 'CALL') {
+    // CALL dials the listed number; a URL would be silently dropped by Google.
+    return { ok: true, value: { cta_type: 'CALL', cta_url: null } }
+  }
+  if (typeof ctaUrl !== 'string' || ctaUrl.trim().length === 0) {
+    if (!required) return { ok: true, value: { cta_type: ctaType, cta_url: null } }
+    return { ok: false, error: 'This button needs a link — add an https:// URL' }
+  }
+  const url = ctaUrl.trim()
+  if (url.length > CTA_URL_MAX) {
+    return { ok: false, error: `Button link is ${url.length} characters; the limit is ${CTA_URL_MAX}` }
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return { ok: false, error: 'Button link must be a full https:// URL' }
+  }
+  if (parsed.protocol !== 'https:') {
+    return { ok: false, error: 'Button link must start with https://' }
+  }
+  return { ok: true, value: { cta_type: ctaType, cta_url: url } }
+}
 
 // The only scheduling window, measured from the moment the Meta call is made:
 // Facebook holds a scheduled post 20 minutes – 29 days out. Meta documents
@@ -108,8 +171,21 @@ export const FB_NATIVE_MAX_MS = 29 * 24 * 60 * 60 * 1000
 export const OUT_OF_WINDOW_MESSAGE =
   'Pick a time between 20 minutes and 29 days from now — posts are always scheduled for your review in Business Suite, never posted immediately'
 
+// Google's own scheduledTime window is undocumented; the one hold window
+// (20 min – 29 days) applies to both vendors until Google's limits are
+// observed on the first real try (design note 2026-09-01).
+export const GOOGLE_OUT_OF_WINDOW_MESSAGE =
+  'Pick a time between 20 minutes and 29 days from now — posts are always scheduled for your review in Business Profile Manager, never posted immediately'
+
+export function outOfWindowMessage(platform: Platform): string {
+  return platform === 'google' ? GOOGLE_OUT_OF_WINDOW_MESSAGE : OUT_OF_WINDOW_MESSAGE
+}
+
 export const INSTAGRAM_NOT_SUPPORTED_MESSAGE =
   'Instagram has no scheduling API — schedule it by hand in Business Suite, then Mark posted here'
+
+export const GOOGLE_NO_VIDEO_MESSAGE =
+  'Google Business posts take one photo — no video. Queue the video for Facebook only'
 
 // A row still 'publishing' this long after its last write was claimed by an
 // approve request that has since been killed (route cap 120 s). The cron
@@ -142,12 +218,18 @@ export function isVideoType(contentType: string): boolean {
 }
 
 /**
- * What kind of post a selection of files makes. Images become a single photo
- * or a 2–10 carousel; one video is a video post. Mixed video+images and
- * multiple videos are rejected outright: Meta has no mixed-media single post,
- * and one clip per post is the v1 rule.
+ * What kind of post a selection of files makes, per platform.
+ *
+ * Facebook (default): images become a single photo or a 2–10 carousel; one
+ * video is a video post. Mixed video+images and multiple videos are rejected
+ * outright: Meta has no mixed-media single post, and one clip per post is the
+ * v1 rule.
+ *
+ * Google: the localPosts API is PHOTO-only, one photo in practice — any image
+ * selection is an 'image' post (only the FIRST image is sent) and any video
+ * is refused with GOOGLE_NO_VIDEO_MESSAGE.
  */
-export function mediaKind(files: MediaItem[]): Result<PostType> {
+export function mediaKind(files: MediaItem[], platform: Platform = 'facebook'): Result<PostType> {
   if (!Array.isArray(files) || files.length === 0) {
     return { ok: false, error: 'Select at least one file' }
   }
@@ -157,6 +239,10 @@ export function mediaKind(files: MediaItem[]): Result<PostType> {
     if (IMAGE_TYPES.has(f.content_type)) images += 1
     else if (VIDEO_TYPES.has(f.content_type)) videos += 1
     else return { ok: false, error: `Unsupported file type: ${f.content_type}` }
+  }
+  if (platform === 'google') {
+    if (videos > 0) return { ok: false, error: GOOGLE_NO_VIDEO_MESSAGE }
+    return { ok: true, value: 'image' }
   }
   if (videos > 0 && images > 0) {
     return { ok: false, error: 'Mixing video and photos in one post is not supported. Queue them separately' }
@@ -217,10 +303,12 @@ function zoneOffsetMs(date: Date, timeZone: string): number {
 }
 
 /**
- * One draft per platform for one "Queue for posting" tap. Only Facebook is
- * accepted (see PUBLISH_PLATFORMS); the shape stays a list so the row
- * contract with the route/UI is unchanged. Caller supplies the group id
- * (randomUUID) to keep this pure.
+ * One draft per platform for one "Queue for posting" tap — any non-empty
+ * subset of PUBLISH_PLATFORMS (facebook, google); the rows share `group_id`.
+ * A google draft keeps only the FIRST image (Google posts carry one photo)
+ * and seeds the CTA picker's default (Learn more; the URL is filled on the
+ * card before approve). Caller supplies the group id (randomUUID) to keep
+ * this pure.
  */
 export function buildDraftPosts(
   selection: MediaItem[],
@@ -228,35 +316,38 @@ export function buildDraftPosts(
   now: Date,
   groupId: string
 ): Result<DraftPost[]> {
-  const kind = mediaKind(selection)
-  if (!kind.ok) return kind
-
   if (!Array.isArray(platforms) || platforms.length === 0) {
-    return { ok: false, error: 'Pick Facebook' }
+    return { ok: false, error: 'Pick at least one platform' }
   }
   const unique: Platform[] = []
   for (const p of platforms) {
     if (!isPlatform(p)) return { ok: false, error: 'Unknown platform' }
     if (!(PUBLISH_PLATFORMS as readonly string[]).includes(p)) {
-      return { ok: false, error: `Only Facebook can be queued here. ${INSTAGRAM_NOT_SUPPORTED_MESSAGE}` }
+      return { ok: false, error: `Only Facebook and Google Business can be queued here. ${INSTAGRAM_NOT_SUPPORTED_MESSAGE}` }
     }
     if (!unique.includes(p)) unique.push(p)
   }
 
   const scheduledAt = defaultScheduleAt(now).toISOString()
   const media = selection.map((f) => ({ path: f.path, content_type: f.content_type }))
-  return {
-    ok: true,
-    value: unique.map((platform) => ({
+  const drafts: DraftPost[] = []
+  for (const platform of unique) {
+    const kind = mediaKind(selection, platform)
+    if (!kind.ok) return kind
+    const google = platform === 'google'
+    drafts.push({
       platform,
       post_type: kind.value,
       caption: null,
-      media,
+      media: google ? media.slice(0, 1) : media,
       scheduled_at: scheduledAt,
+      cta_type: google ? 'LEARN_MORE' : null,
+      cta_url: null,
       status: 'draft',
       group_id: groupId,
-    })),
+    })
   }
+  return { ok: true, value: drafts }
 }
 
 export function countHashtags(text: string): number {
@@ -292,9 +383,10 @@ export function validateCaption(
   }
   const limit = CAPTION_LIMITS[platform]
   if (cleaned.length > limit) {
+    const label = platform === 'instagram' ? 'Instagram' : platform === 'google' ? 'Google Business' : 'Facebook'
     return {
       ok: false,
-      error: `Caption is ${cleaned.length.toLocaleString('en-US')} characters; ${platform === 'instagram' ? 'Instagram' : 'Facebook'} allows ${limit.toLocaleString('en-US')}`,
+      error: `Caption is ${cleaned.length.toLocaleString('en-US')} characters; ${label} allows ${limit.toLocaleString('en-US')}`,
     }
   }
   if (platform === 'instagram') {
@@ -328,11 +420,12 @@ export function parseScheduledAt(raw: unknown): Result<Date | null> {
 }
 
 /**
- * Whether an approved post can be handed to Meta as a scheduled post.
- *   fb-native      20 min – 29 days out: Meta holds the scheduled post
+ * Whether an approved post can be handed to the vendor as a scheduled post
+ * (one hold window for both Facebook and Google).
+ *   fb-native      20 min – 29 days out: the vendor holds the scheduled post
  *   out-of-window  no time, past, under 20 min, or beyond 29 days: refused
- *                  with OUT_OF_WINDOW_MESSAGE. Never published immediately,
- *                  never left for a cron.
+ *                  with outOfWindowMessage(platform). Never published
+ *                  immediately, never left for a cron.
  */
 export function scheduleMode(scheduledAt: Date | null, now: Date): ScheduleMode {
   if (!scheduledAt) return 'out-of-window'
@@ -344,7 +437,7 @@ export function scheduleMode(scheduledAt: Date | null, now: Date): ScheduleMode 
 export type PostEvent =
   | 'update' // caption / schedule edit
   | 'approve' // Joseph's review gate
-  | 'fb_scheduled' // Meta accepted the scheduled post
+  | 'fb_scheduled' // the vendor (Meta or Google) accepted and holds the scheduled post
   | 'unapprove' // back to draft before it goes live
   | 'published' // the cron saw Meta publish the held post
   | 'fail'
