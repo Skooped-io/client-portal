@@ -486,9 +486,13 @@ export async function scheduleOnGoogle(input: GoogleScheduleInput): Promise<Sche
     const deleted = await bestEffortDeleteGbp(token, name)
     throw new GbpScheduleMismatchError(name, null, deleted, err instanceof Error ? err.message : 'unknown error')
   }
-  if (state !== 'SCHEDULED') {
-    // LIVE (published immediately — the review rule is broken) or any other
-    // unexpected state: remove it if we can, and surface the failure.
+  // Google validates a just-created scheduled post asynchronously: SCHEDULED
+  // once validated, PROCESSING while it validates (observed live 2026-09-03 on
+  // Skooped's profile). Both mean HELD and absent from search results, so both
+  // are accepted; the reconcile tick flips the row to published only when
+  // Google reports LIVE at the scheduled time. LIVE now (review rule broken),
+  // REJECTED, or anything else -> remove it if we can and surface the failure.
+  if (state !== 'SCHEDULED' && state !== 'PROCESSING') {
     const deleted = await bestEffortDeleteGbp(token, name)
     throw new GbpScheduleMismatchError(name, state, deleted)
   }

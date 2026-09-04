@@ -173,6 +173,17 @@ describe('scheduleOnGoogle', () => {
     expect(body.media).toEqual([{ mediaFormat: 'PHOTO', sourceUrl: 'https://cdn/abc.jpg' }])
   })
 
+  it('read-back PROCESSING (Google validating a scheduled post) is accepted as held', async () => {
+    responses = [
+      { status: 200, body: { name: NAME } },
+      { status: 200, body: { name: NAME, state: 'PROCESSING' } },
+    ]
+    const out = await scheduleOnGoogle({ admin: fakeAdmin('gunns-fencing', activeLocation), post: post(), derived, scheduledAt: WHEN })
+    expect(out).toEqual({ platformPostId: NAME, postRef: `gbp:${NAME}` })
+    // no DELETE call — the post is held, not removed
+    expect(gbpCalls().every((c) => c.method !== 'DELETE')).toBe(true)
+  })
+
   it('read-back LIVE (published immediately): best-effort delete, mismatch error carrying the name', async () => {
     responses = [
       { status: 200, body: { name: NAME } },
