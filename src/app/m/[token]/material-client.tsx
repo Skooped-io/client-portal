@@ -10,8 +10,10 @@ import {
   IG_MAX_HASHTAGS,
   IG_MAX_MENTIONS,
   INSTAGRAM_NOT_SUPPORTED_MESSAGE,
-  OUT_OF_WINDOW_MESSAGE,
+  outOfWindowMessage,
   scheduleMode,
+  validateCta,
+  type CtaType,
   type SocialPost,
 } from '@/lib/social/queue'
 
@@ -35,6 +37,8 @@ interface MaterialClientProps {
   posts: SocialPost[]
   /** Public bucket prefix; media paths append to it. */
   mediaBase: string
+  /** The org has an active mapped Google Business location: Queue offers Google. */
+  hasGbpLocation: boolean
 }
 
 function formatDate(iso: string): string {
@@ -68,14 +72,37 @@ function fromLocalInput(value: string): string | null {
 
 function postRefOf(post: SocialPost): string | null {
   if (!post.platform_post_id) return null
-  return `${post.platform === 'facebook' ? 'fb' : 'ig'}:${post.platform_post_id}`
+  const prefix = post.platform === 'facebook' ? 'fb' : post.platform === 'google' ? 'gbp' : 'ig'
+  return `${prefix}:${post.platform_post_id}`
 }
 
-const PLATFORM_LABEL: Record<SocialPost['platform'], string> = { facebook: 'Facebook', instagram: 'Instagram' }
+const PLATFORM_LABEL: Record<SocialPost['platform'], string> = {
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  google: 'Google',
+}
 const PLATFORM_BADGE: Record<SocialPost['platform'], string> = {
   facebook: 'bg-blue-600 text-white',
   instagram: 'bg-pink-600 text-white',
+  google: 'bg-emerald-600 text-white',
 }
+
+/** Where the vendor holds the post for Joseph's final review. */
+const REVIEW_SURFACE: Record<SocialPost['platform'], string> = {
+  facebook: 'Business Suite Planner',
+  instagram: 'Business Suite',
+  google: 'Business Profile Manager',
+}
+
+const CTA_OPTIONS: Array<{ value: '' | CtaType; label: string }> = [
+  { value: '', label: 'No button' },
+  { value: 'CALL', label: 'Call' },
+  { value: 'LEARN_MORE', label: 'Learn more' },
+  { value: 'BOOK', label: 'Book' },
+  { value: 'ORDER', label: 'Order' },
+  { value: 'SHOP', label: 'Shop' },
+  { value: 'SIGN_UP', label: 'Sign up' },
+]
 const STATUS_BADGE: Record<SocialPost['status'], string> = {
   draft: 'bg-slate-200 text-slate-800',
   approved: 'bg-sky-100 text-sky-800',
@@ -94,7 +121,7 @@ function statusLabel(post: SocialPost): string {
       // Legacy resting state from the 8/31 design: nothing is holding it.
       return 'Approved (old flow) · not scheduled'
     case 'scheduled':
-      return `Scheduled on Facebook · ${formatWhen(post.scheduled_at)}`
+      return `Scheduled on ${PLATFORM_LABEL[post.platform]} · ${formatWhen(post.scheduled_at)}`
     case 'publishing':
       return 'Scheduling…'
     case 'published':
@@ -113,7 +140,7 @@ interface QueueCardProps {
   onAction: (
     post: SocialPost,
     action: 'update' | 'approve' | 'unapprove' | 'delete',
-    extra?: { caption?: string; scheduled_at?: string | null }
+    extra?: { caption?: string; scheduled_at?: string | null; cta_type?: string | null; cta_url?: string | null }
   ) => Promise<void>
 }
 
@@ -144,13 +171,17 @@ function Thumbs({ post, mediaBase, size = 'h-16 w-16' }: { post: SocialPost; med
 function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
   const [caption, setCaption] = useState(post.caption ?? '')
   const [when, setWhen] = useState(toLocalInput(post.scheduled_at))
+  const [ctaType, setCtaType] = useState<'' | CtaType>(post.cta_type ?? '')
+  const [ctaUrl, setCtaUrl] = useState(post.cta_url ?? '')
   const [now, setNow] = useState(() => new Date())
 
   // A server response replaces the row; re-seed the editors from it.
   useEffect(() => {
     setCaption(post.caption ?? '')
     setWhen(toLocalInput(post.scheduled_at))
-  }, [post.updated_at, post.caption, post.scheduled_at])
+    setCtaType(post.cta_type ?? '')
+    setCtaUrl(post.cta_url ?? '')
+  }, [post.updated_at, post.caption, post.scheduled_at, post.cta_type, post.cta_url])
 
   // Keep the window check honest while the card sits open.
   useEffect(() => {
@@ -159,20 +190,32 @@ function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
   }, [])
 
   const can = allowedActions(post)
-  const readOnly = post.platform !== 'facebook'
+  const isGoogle = post.platform === 'google'
+  const readOnly = post.platform === 'instagram'
   const limit = CAPTION_LIMITS[post.platform]
   const hashtags = post.platform === 'instagram' ? countHashtags(caption) : 0
   const mentions = post.platform === 'instagram' ? countMentions(caption) : 0
   const overLimit = caption.length > limit || hashtags > IG_MAX_HASHTAGS || mentions > IG_MAX_MENTIONS
-  const dirty = caption !== (post.caption ?? '') || when !== toLocalInput(post.scheduled_at)
+  const dirty =
+    caption !== (post.caption ?? '') ||
+    when !== toLocalInput(post.scheduled_at) ||
+    (isGoogle && (ctaType !== (post.cta_type ?? '') || ctaUrl !== (post.cta_url ?? '')))
   const editable = can.edit && !busy
 
   // Same rule the server applies: only 20 min – 29 days out can be handed to
-  // Meta as a scheduled post; anything else is refused, never posted now.
+  // the vendor as a scheduled post; anything else is refused, never posted now.
   const whenIso = fromLocalInput(when)
   const inWindow = scheduleMode(whenIso ? new Date(whenIso) : null, now) === 'fb-native'
 
-  const extra = () => ({ caption, scheduled_at: whenIso })
+  // Same CTA rule the server applies at approve time (URL required for every
+  // button except Call).
+  const ctaCheck = isGoogle ? validateCta(ctaType || null, ctaUrl || null, { required: true }) : null
+  const ctaNeedsUrl = ctaType !== '' && ctaType !== 'CALL'
+
+  const extra = () =>
+    isGoogle
+      ? { caption, scheduled_at: whenIso, cta_type: ctaType || null, cta_url: ctaUrl || null }
+      : { caption, scheduled_at: whenIso }
 
   return (
     <li className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -216,11 +259,47 @@ function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
         {can.approve && (
           <span className={`mt-1 block font-normal ${inWindow ? 'text-slate-400' : 'text-red-600'}`}>
             {inWindow
-              ? 'Approve hands it to Meta as a scheduled post. Review, edit or delete it in Business Suite Planner before then; Meta publishes it at this time.'
-              : OUT_OF_WINDOW_MESSAGE}
+              ? `Approve hands it to ${isGoogle ? 'Google' : 'Meta'} as a scheduled post. Review, edit or delete it in ${REVIEW_SURFACE[post.platform]} before then; ${isGoogle ? 'Google' : 'Meta'} publishes it at this time.`
+              : outOfWindowMessage(post.platform)}
           </span>
         )}
       </label>
+
+      {isGoogle && !readOnly && (
+        <div className="mt-2">
+          <label className="block text-[11px] font-medium text-slate-500">
+            Button
+            <select
+              value={ctaType}
+              onChange={(e) => setCtaType(e.target.value as '' | CtaType)}
+              disabled={!editable}
+              className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 focus:border-slate-900 focus:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+            >
+              {CTA_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {ctaNeedsUrl && (
+            <label className="mt-2 block text-[11px] font-medium text-slate-500">
+              Button link
+              <input
+                type="url"
+                value={ctaUrl}
+                onChange={(e) => setCtaUrl(e.target.value)}
+                disabled={!editable}
+                placeholder="https://…"
+                className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+              />
+            </label>
+          )}
+          {can.approve && ctaCheck && !ctaCheck.ok && (
+            <p className="mt-1 text-[11px] text-red-600">{ctaCheck.error}</p>
+          )}
+        </div>
+      )}
 
       {readOnly && (
         <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">{INSTAGRAM_NOT_SUPPORTED_MESSAGE}</p>
@@ -236,7 +315,9 @@ function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
       )}
       {post.status === 'scheduled' && (
         <p className="mt-2 text-xs text-slate-500">
-          Meta is holding this post; it is in Business Suite Planner for your final review. Unapprove removes it there.
+          {isGoogle
+            ? 'Google is holding this post; it is in Business Profile Manager for your final review. Unapprove removes it there.'
+            : 'Meta is holding this post; it is in Business Suite Planner for your final review. Unapprove removes it there.'}
         </p>
       )}
       {post.status === 'approved' && !readOnly && (
@@ -246,7 +327,7 @@ function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
       )}
       {post.status === 'publishing' && (
         <p className="mt-2 text-xs text-slate-500">
-          Handing it to Meta. If this sits here for more than 15 minutes it will come back as Failed with a Retry button.
+          Handing it to {isGoogle ? 'Google' : 'Meta'}. If this sits here for more than 15 minutes it will come back as Failed with a Retry button.
         </p>
       )}
 
@@ -254,7 +335,7 @@ function QueueCard({ post, mediaBase, busy, onAction }: QueueCardProps) {
         {can.approve && (
           <button
             onClick={() => void onAction(post, 'approve', extra())}
-            disabled={busy || overLimit || !inWindow || caption.trim().length === 0}
+            disabled={busy || overLimit || !inWindow || caption.trim().length === 0 || (ctaCheck ? !ctaCheck.ok : false)}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white active:scale-[0.98] disabled:opacity-50"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -316,7 +397,14 @@ function PostedCard({ post, mediaBase }: { post: SocialPost; mediaBase: string }
   )
 }
 
-export function MaterialClient({ token, orgName, files: initial, posts: initialPosts, mediaBase }: MaterialClientProps) {
+export function MaterialClient({
+  token,
+  orgName,
+  files: initial,
+  posts: initialPosts,
+  mediaBase,
+  hasGbpLocation,
+}: MaterialClientProps) {
   const [files, setFiles] = useState(initial)
   const [posts, setPosts] = useState(initialPosts)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -325,6 +413,7 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
   const [busyPost, setBusyPost] = useState<string | null>(null)
   const [showPosted, setShowPosted] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [queueTarget, setQueueTarget] = useState<'facebook' | 'google' | 'both'>('facebook')
 
   const jobs = useMemo(() => {
     const map = new Map<string, MaterialFile[]>()
@@ -385,6 +474,13 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
     }
   }
 
+  const queuePlatforms =
+    hasGbpLocation && queueTarget === 'google'
+      ? ['google']
+      : hasGbpLocation && queueTarget === 'both'
+        ? ['facebook', 'google']
+        : ['facebook']
+
   const queue = async () => {
     if (selected.size === 0 || busy) return
     setBusy(true)
@@ -395,7 +491,7 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
       const res = await fetch('/api/material/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, paths, platforms: ['facebook'] }),
+        body: JSON.stringify({ token, paths, platforms: queuePlatforms }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error ?? 'Could not queue. Try again')
@@ -443,10 +539,10 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
         }
         if (updated.status === 'cancelled') setPosts((prev) => prev.filter((p) => p.id !== updated.id))
         if (action === 'approve' && updated.status === 'failed') {
-          setNotice(updated.last_error ?? 'Meta rejected the post')
+          setNotice(updated.last_error ?? `${updated.platform === 'google' ? 'Google' : 'Meta'} rejected the post`)
         }
         if (action === 'approve' && updated.status === 'scheduled') {
-          setNotice('Scheduled. It is now in Business Suite Planner for your final review.')
+          setNotice(`Scheduled. It is now in ${REVIEW_SURFACE[updated.platform]} for your final review.`)
         }
       }
     } catch (err) {
@@ -475,7 +571,7 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
           <section className="mt-6">
             <h2 className="text-base font-semibold text-slate-800">Needs your OK</h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              Approve hands a post to Meta as a scheduled post; nothing is ever posted immediately.
+              Approve hands a post to Meta or Google as a scheduled post; nothing is ever posted immediately.
             </p>
             <ul className="mt-3 flex flex-col gap-3">
               {queuePosts.map((p) => (
@@ -593,6 +689,29 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
               maxLength={120}
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
             />
+            {hasGbpLocation && (
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="radiogroup" aria-label="Queue for">
+                {(
+                  [
+                    { value: 'facebook', label: 'Facebook' },
+                    { value: 'google', label: 'Google' },
+                    { value: 'both', label: 'Both' },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.value}
+                    role="radio"
+                    aria-checked={queueTarget === o.value}
+                    onClick={() => setQueueTarget(o.value)}
+                    className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                      queueTarget === o.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               onClick={() => void queue()}
               disabled={busy}
@@ -600,6 +719,7 @@ export function MaterialClient({ token, orgName, files: initial, posts: initialP
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               Queue {selected.size} for posting
+              {hasGbpLocation && queueTarget !== 'facebook' ? ` (${queueTarget === 'both' ? 'FB + Google' : 'Google'})` : ''}
             </button>
             <p className="text-[11px] leading-snug text-slate-500">
               Instagram: no scheduling API — schedule by hand in Business Suite, then Mark posted here

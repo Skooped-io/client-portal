@@ -15,11 +15,13 @@ export const maxDuration = 120
  * .github/workflows/social-publish.yml (Vercel Hobby only allows daily crons;
  * vercel.json keeps a once-a-day safety sweep at 14:00 UTC).
  *
- * Product rule (Joseph, 2026-09-01): Skooped never publishes to Meta. The
- * only content write is the scheduled Facebook post the approve route
- * creates on /m/<token>; Meta publishes it at the chosen time after Joseph
- * has had it in Business Suite Planner. So this tick creates nothing and
- * publishes nothing — it never calls a Meta create/publish endpoint. It only:
+ * Product rule (Joseph, 2026-09-01; Google added 2026-09-03): Skooped never
+ * publishes. The only content writes are the scheduled posts the approve
+ * route creates on /m/<token> (Facebook held via published=false, Google held
+ * via LocalPost.scheduledTime); the vendor publishes at the chosen time after
+ * Joseph has had the post in Business Suite Planner / Business Profile
+ * Manager. So this tick creates nothing and publishes nothing — it never
+ * calls a Meta or Google create/publish endpoint. It only:
  *
  *   0. Sweeps rows stuck in 'publishing' for 15+ minutes (an approve request
  *      that was killed mid-call) to 'failed' so Retry shows on /m.
@@ -28,6 +30,9 @@ export const maxDuration = 120
  *      published_at + capture_uploads.posted_at stamped. Gone from Meta
  *      (deleted in Planner) → 'cancelled'. Otherwise left 'scheduled' and
  *      checked again next tick.
+ *   2. Same pass for Google rows ('scheduled'): LIVE → 'published' + stamp
+ *      (gbp:<name>); gone (deleted in Business Profile Manager) →
+ *      'cancelled'; otherwise left 'scheduled'.
  *
  * Instagram rows (legacy) and legacy 'approved' rows are never touched.
  *
@@ -53,6 +58,9 @@ export async function GET(request: NextRequest) {
       fbWentLive: result.fbWentLive.length,
       fbMissing: result.fbMissing.length,
       fbHeld: result.fbHeld.length,
+      googleWentLive: result.googleWentLive.length,
+      googleMissing: result.googleMissing.length,
+      googleHeld: result.googleHeld.length,
     }
     ops.info('system', 'cron.social_publish.completed', 'completed', { metadata: counts })
     await flush()

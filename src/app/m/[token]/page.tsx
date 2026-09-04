@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { POST_COLUMNS } from '@/lib/social/service'
+import { loadGbpLocation, POST_COLUMNS } from '@/lib/social/service'
 import type { SocialPost } from '@/lib/social/queue'
 import { MaterialClient, type MaterialFile } from './material-client'
 
@@ -36,7 +36,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
 
   if (!org) notFound()
 
-  const [{ data: uploads }, { data: posts }] = await Promise.all([
+  const [{ data: uploads }, { data: posts }, gbpLocation] = await Promise.all([
     supabase
       .from('capture_uploads')
       .select('path, job, location, notes, content_type, size_bytes, uploaded_at, posted_at, post_ref, created_at')
@@ -50,6 +50,10 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
       .neq('status', 'cancelled')
       .order('created_at', { ascending: false })
       .limit(100),
+    // Whether the Queue sheet offers Google: the org must have an active
+    // mapped gbp_managed_locations row (client_key = slug). A lookup failure
+    // just hides the option; queueing still re-checks server-side.
+    loadGbpLocation(supabase, org.id).catch(() => null),
   ])
 
   // Bucket is public (created 2026-08-13); plain public URLs render thumbnails
@@ -75,6 +79,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
       files={files}
       posts={(posts ?? []) as unknown as SocialPost[]}
       mediaBase={base}
+      hasGbpLocation={Boolean(gbpLocation)}
     />
   )
 }

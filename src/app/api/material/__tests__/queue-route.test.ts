@@ -64,13 +64,13 @@ describe('POST /api/material/queue', () => {
     expect(tables.calls).toEqual([])
   })
 
-  it("is Facebook-only: ['instagram'] and ['facebook','instagram'] are 400 with the by-hand hint, before any lookup", async () => {
+  it("takes only facebook/google: ['instagram'] and ['facebook','instagram'] are 400 with the by-hand hint, before any lookup", async () => {
     const { POST } = await import('../queue/route')
     for (const platforms of [['instagram'], ['facebook', 'instagram'], ['tiktok']]) {
       const res = await POST(post({ token: TOKEN, paths: ['org1/captures/j/1.jpg'], platforms }))
       expect(res.status).toBe(400)
       const body = await res.json()
-      expect(body.error).toMatch(/Only Facebook/)
+      expect(body.error).toMatch(/Only Facebook and Google Business/)
       expect(body.error).toMatch(/Business Suite/)
     }
     expect(tables.calls).toEqual([])
@@ -112,7 +112,7 @@ describe('POST /api/material/queue', () => {
     expect(body.error).toMatch(/Mixing video and photos/)
   })
 
-  it('creates one Facebook draft and returns the row', async () => {
+  it('creates one Facebook draft and returns the row (no Google lookup for facebook-only)', async () => {
     const rows = [{ id: 'p1', platform: 'facebook', status: 'draft' }]
     tables.current = {
       organizations: { data: { id: 'org1', name: 'Gunn' } },
@@ -133,5 +133,63 @@ describe('POST /api/material/queue', () => {
     const body = await res.json()
     expect(body.posts).toEqual(rows)
     expect(tables.calls).toEqual(['organizations', 'capture_uploads', 'social_posts'])
+  })
+
+  it("google with no active mapped GBP location is refused at queue time, before any file lookup", async () => {
+    for (const location of [null, { gbp_location_name: 'accounts/1/locations/2', active: false }, { gbp_location_name: null, active: true }]) {
+      tables.current = {
+        organizations: { data: { id: 'org1', name: 'Gunn', slug: 'gunns-fencing' } },
+        gbp_managed_locations: { data: location, error: null },
+      }
+      tables.calls.length = 0
+      const { POST } = await import('../queue/route')
+      const res = await POST(post({ token: TOKEN, paths: ['org1/captures/j/1.jpg'], platforms: ['google'] }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe('No Google Business location connected for this client')
+      expect(tables.calls).not.toContain('capture_uploads')
+      expect(tables.calls).not.toContain('social_posts')
+    }
+  })
+
+  it('facebook + google with a mapped location creates both drafts', async () => {
+    const rows = [
+      { id: 'p1', platform: 'facebook', status: 'draft' },
+      { id: 'p2', platform: 'google', status: 'draft' },
+    ]
+    tables.current = {
+      organizations: { data: { id: 'org1', name: 'Gunn', slug: 'gunns-fencing' } },
+      gbp_managed_locations: { data: { gbp_location_name: 'accounts/1/locations/2', active: true }, error: null },
+      capture_uploads: {
+        data: [
+          { path: 'org1/captures/j/1.jpg', content_type: 'image/jpeg' },
+          { path: 'org1/captures/j/2.jpg', content_type: 'image/jpeg' },
+        ],
+        error: null,
+      },
+      social_posts: { data: rows, error: null },
+    }
+    const { POST } = await import('../queue/route')
+    const res = await POST(
+      post({ token: TOKEN, paths: ['org1/captures/j/1.jpg', 'org1/captures/j/2.jpg'], platforms: ['facebook', 'google'] })
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).posts).toEqual(rows)
+    expect(tables.calls).toContain('gbp_managed_locations')
+    expect(tables.calls).toContain('social_posts')
+  })
+
+  it('a video queued for google is refused with the one-photo message', async () => {
+    tables.current = {
+      organizations: { data: { id: 'org1', name: 'Gunn', slug: 'gunns-fencing' } },
+      gbp_managed_locations: { data: { gbp_location_name: 'accounts/1/locations/2', active: true }, error: null },
+      capture_uploads: { data: [{ path: 'org1/captures/j/1.mov', content_type: 'video/quicktime' }], error: null },
+    }
+    const { POST } = await import('../queue/route')
+    for (const platforms of [['google'], ['facebook', 'google']]) {
+      const res = await POST(post({ token: TOKEN, paths: ['org1/captures/j/1.mov'], platforms }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/one photo — no video/)
+    }
+    expect(tables.calls).not.toContain('social_posts')
   })
 })
